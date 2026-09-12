@@ -3,6 +3,8 @@ package com.projectenigma;
 import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Screen;
+import com.projectenigma.audio.SoundEffects;
+import com.projectenigma.audio.SoundCue;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -38,6 +40,7 @@ public final class ProjectEnigmaGame extends Game {
     private BitmapFont titleFont;
     private SaveService saveService;
     private GameSession session;
+    private final SoundEffects sounds = new SoundEffects();
 
     // ---- PvP (Phase 1: LAN, one guest, no persistence across app restarts) ----
     private PvPServer pvpServer;
@@ -69,6 +72,7 @@ public final class ProjectEnigmaGame extends Game {
         batch = new SpriteBatch();
         shapes = new ShapeRenderer();
         assets = new UtopiaAssets();
+        sounds.load();
         font = new BitmapFont();
         mediumFont = new BitmapFont();
         titleFont = new BitmapFont();
@@ -131,6 +135,7 @@ public final class ProjectEnigmaGame extends Game {
             return;
         }
         switchScreen(new CombatScreen(this, session, enemy));
+        sounds.play(SoundCue.ENCOUNTER);
     }
 
     public void showGameOver() {
@@ -322,6 +327,13 @@ public final class ProjectEnigmaGame extends Game {
         }
     }
 
+    public SoundEffects sounds() { return sounds; }
+
+    @Override public void render() {
+        sounds.update(Gdx.graphics.getDeltaTime());
+        super.render();
+    }
+
     public SpriteBatch batch() {
         return batch;
     }
@@ -363,6 +375,7 @@ public final class ProjectEnigmaGame extends Game {
         if (current != null) {
             current.dispose();
         }
+        sounds.dispose();
         assets.dispose();
         batch.dispose();
         shapes.dispose();

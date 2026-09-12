@@ -54,9 +54,18 @@ public final class MenuScreen extends AbstractGameScreen {
                 return false;
             }
         });
+        useMouse(viewport).modal(() -> controlsVisible);
+        for (int i = 0; i < OPTIONS.length; i++) {
+            final int index = i;
+            mouseUi.add(OPTIONS[i], 108, 408 - i * 64, 424, 48, () -> { selected = index; activateSelection(); })
+                    .when(() -> !controlsVisible).large().hover(() -> selected = index).selected(() -> selected == index)
+                    .disabled(() -> index == 1 && !game.saves().hasSave() ? "No saved run available." : "");
+        }
+        mouseUi.add("Close", 540, 128, 200, 44, () -> controlsVisible = false).when(() -> controlsVisible);
     }
 
     private void activateSelection() {
+        if (selected == 1 && !game.saves().hasSave()) { notice = "No saved run available."; return; }
         switch (selected) {
             case 0 -> game.showClassSelect();
             case 1 -> {
@@ -82,6 +91,7 @@ public final class MenuScreen extends AbstractGameScreen {
         if (controlsVisible) {
             drawControls();
         }
+        drawMouse();
     }
 
     private void drawBackground() {
@@ -117,15 +127,6 @@ public final class MenuScreen extends AbstractGameScreen {
         shapes.rect(60f, 646f, 520f, 10f);
         shapes.setColor(Palette.BLUE);
         shapes.rect(60f, 66f, 8f, 580f);
-        for (int i = 0; i < OPTIONS.length; i++) {
-            float y = 408f - i * 64f;
-            shapes.setColor(i == selected ? Palette.PANEL_LIGHT : Palette.WALL);
-            shapes.rect(108f, y, 424f, 48f);
-            if (i == selected) {
-                shapes.setColor(Palette.ACCENT);
-                shapes.rect(108f, y, 7f, 48f);
-            }
-        }
         shapes.end();
         Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
 
@@ -134,12 +135,8 @@ public final class MenuScreen extends AbstractGameScreen {
         UiRenderer.centeredText(game.batch(), game.titleFont(), ProjectEnigmaGame.DISPLAY_NAME,
                 320f, 590f, Palette.TEXT);
         UiRenderer.centeredText(game.batch(), game.font(), "UTOPIA PROTOCOL // PROCEDURAL RPG", 320f, 546f, Palette.BLUE_LIGHT);
-        for (int i = 0; i < OPTIONS.length; i++) {
-            boolean unavailable = i == 1 && !game.saves().hasSave();
-            UiRenderer.centeredText(game.batch(), game.mediumFont(), OPTIONS[i], 320f,
-                    442f - i * 64f, unavailable ? Palette.MUTED : Palette.TEXT);
-        }
-        UiRenderer.centeredText(game.batch(), game.font(), "W/S or arrows: select    Enter: confirm    Esc: quit",
+
+        UiRenderer.centeredText(game.batch(), game.font(), "Click an option | W/S or arrows: select    Enter: confirm    Esc: quit",
                 640f, 34f, Palette.TEXT);
         if (!notice.isEmpty()) {
             UiRenderer.centeredText(game.batch(), game.font(), notice, 320f, 94f, Palette.DANGER);
@@ -159,8 +156,8 @@ public final class MenuScreen extends AbstractGameScreen {
         shapes.end();
 
         game.batch().begin();
-        UiRenderer.centeredText(game.batch(), game.titleFont(), "KEYBOARD CONTROLS", 640f, 560f, Palette.TEXT);
-        String controls = "EXPLORE\n"
+        UiRenderer.centeredText(game.batch(), game.titleFont(), "CONTROLS", 640f, 560f, Palette.TEXT);
+        String controls = "MOUSE\nClick floor: move / Right-click: stop\nClick chest or enemy: approach and interact\nUse visible buttons for menus and actions\n\nKEYBOARD\n"
                 + "WASD / Arrow Keys  -  Move\n"
                 + "E / Enter          -  Use the stairs\n"
                 + "I / Tab            -  Inventory\n"
@@ -170,8 +167,8 @@ public final class MenuScreen extends AbstractGameScreen {
                 + "W/S / Arrow Keys   -  Select an action\n"
                 + "1-5                -  Action hotkeys\n"
                 + "Enter / Space      -  Confirm";
-        UiRenderer.wrappedText(game.batch(), game.mediumFont(), controls, 360f, 500f, 570f, Palette.TEXT);
-        UiRenderer.centeredText(game.batch(), game.font(), "Press Enter or Esc to return", 640f, 145f, Palette.MUTED);
+        UiRenderer.wrappedText(game.batch(), game.font(), controls, 310f, 500f, 680f, Palette.TEXT);
+        UiRenderer.centeredText(game.batch(), game.font(), "", 640f, 145f, Palette.MUTED);
         game.batch().end();
         Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
     }

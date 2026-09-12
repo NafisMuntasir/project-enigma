@@ -1,6 +1,7 @@
 package com.projectenigma.lwjgl3;
 
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
+import com.badlogic.gdx.backends.lwjgl3.Lwjgl3WindowAdapter;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import com.projectenigma.ProjectEnigmaGame;
 
@@ -34,6 +35,10 @@ public final class Lwjgl3Launcher {
         configuration.useVsync(true);
         configuration.setForegroundFPS(60);
         configuration.setIdleFPS(30);
-        new Lwjgl3Application(new ProjectEnigmaGame(args), configuration);
+        ProjectEnigmaGame game = new ProjectEnigmaGame(args);
+        configuration.setWindowListener(new Lwjgl3WindowAdapter() {
+            @Override public void focusLost() { if (game.getScreen() != null) game.getScreen().pause(); }
+        });
+        new Lwjgl3Application(game, configuration);
     }
 }

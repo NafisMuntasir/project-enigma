@@ -1,6 +1,7 @@
 package com.projectenigma.screen;
 
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -33,6 +34,9 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
     private int selected;
     private final StringBuilder ipInput = new StringBuilder("127.0.0.1");
     private String notice = "";
+    private boolean addressFocused = true;
+    private boolean selectAll;
+    private int caret = 9;
 
     public MultiplayerMenuScreen(ProjectEnigmaGame game) {
         super(game);
@@ -47,7 +51,28 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
                     case HOSTING_WAIT, JOIN_CONNECTING -> handleWaitingInput(keycode);
                 };
             }
+            @Override public boolean keyTyped(char character) {
+                if (mode != Mode.JOIN_INPUT || !addressFocused) return false;
+                if ((character >= '0' && character <= '9') || character == '.') {
+                    if (selectAll) { ipInput.setLength(0); caret = 0; selectAll = false; }
+                    if (ipInput.length() < 64) ipInput.insert(caret++, character);
+                }
+                return true;
+            }
         });
+        useMouse(viewport);
+        for (int i = 0; i < OPTIONS.length; i++) {
+            final int index = i;
+            mouseUi.add(OPTIONS[i], 465, 400 - i * 66, 350, 48, () -> { selected = index; activateSelection(); })
+                    .when(() -> mode == Mode.MENU).large().hover(() -> selected = index).selected(() -> selected == index);
+        }
+        mouseUi.add(this::addressLabel, 415, 310, 450, 56, () -> addressFocused = true)
+                .when(() -> mode == Mode.JOIN_INPUT).selected(() -> addressFocused);
+        mouseUi.add("Paste", 435, 235, 120, 48, this::pasteAddress).when(() -> mode == Mode.JOIN_INPUT);
+        mouseUi.add("Connect", 565, 235, 140, 48, this::connectAddress).when(() -> mode == Mode.JOIN_INPUT);
+        mouseUi.add("Back", 715, 235, 130, 48, () -> mode = Mode.MENU).when(() -> mode == Mode.JOIN_INPUT);
+        mouseUi.add("Cancel", 540, 210, 200, 48, this::cancelWaiting)
+                .when(() -> mode == Mode.HOSTING_WAIT || mode == Mode.JOIN_CONNECTING);
     }
 
     private boolean handleMenuInput(int keycode) {
@@ -64,15 +89,7 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
             return true;
         }
         if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
-            switch (selected) {
-                case 0 -> startHosting();
-                case 1 -> {
-                    mode = Mode.JOIN_INPUT;
-                    notice = "";
-                }
-                case 2 -> game.showMenu();
-                default -> throw new IllegalStateException("Unknown menu item");
-            }
+            activateSelection();
             return true;
         }
         return false;
@@ -105,46 +122,65 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
         }
     }
 
-    private boolean handleJoinInput(int keycode) {
-        if (keycode == Input.Keys.ESCAPE) {
-            mode = Mode.MENU;
-            return true;
+    private void activateSelection() {
+        switch (selected) {
+            case 0 -> startHosting();
+            case 1 -> { mode = Mode.JOIN_INPUT; notice = ""; addressFocused = true; caret = ipInput.length(); selectAll = true; }
+            case 2 -> game.showMenu();
+            default -> throw new IllegalStateException("Unknown menu item");
         }
-        if (keycode == Input.Keys.BACKSPACE) {
-            if (ipInput.length() > 0) {
-                ipInput.deleteCharAt(ipInput.length() - 1);
-            }
-            return true;
-        }
-        if (keycode == Input.Keys.PERIOD || keycode == Input.Keys.NUMPAD_DOT) {
-            ipInput.append('.');
-            return true;
-        }
-        if (keycode >= Input.Keys.NUM_0 && keycode <= Input.Keys.NUM_9) {
-            ipInput.append((char) ('0' + (keycode - Input.Keys.NUM_0)));
-            return true;
-        }
-        if (keycode == Input.Keys.ENTER) {
-            if (ipInput.length() == 0) {
-                notice = "Enter the host's IP address.";
-                return true;
-            }
-            game.joinPvPMatch(ipInput.toString());
-            mode = Mode.JOIN_CONNECTING;
-            notice = "";
-            return true;
-        }
-        return false;
     }
 
-    private boolean handleWaitingInput(int keycode) {
-        if (keycode == Input.Keys.ESCAPE) {
-            if (mode == Mode.JOIN_CONNECTING && game.pvpClient() != null) {
-                game.pvpClient().cancelPendingConnection();
-            }
-            game.leavePvPMatch();
-            return true;
+    private String addressLabel() {
+        if (!addressFocused) return ipInput.toString();
+        if (selectAll) return "[ " + ipInput + " ]";
+        return ipInput.substring(0, caret) + "|" + ipInput.substring(caret);
+    }
+
+    private void pasteAddress() {
+        String text = Gdx.app.getClipboard().getContents();
+        if (text == null) return;
+        text = text.trim();
+        if (text.length() > 64 || !text.matches("[0-9.]*")) { notice = "Paste an IPv4 address, e.g. 192.168.1.10."; return; }
+        ipInput.setLength(0); ipInput.append(text); caret = ipInput.length(); selectAll = false; addressFocused = true;
+    }
+
+    private void connectAddress() {
+        String address = ipInput.toString();
+        String[] parts = address.split("\\.", -1);
+        boolean valid = parts.length == 4;
+        for (String part : parts) {
+            if (part.isEmpty() || part.length() > 3 || !part.matches("[0-9]+")) { valid = false; break; }
+            if (Integer.parseInt(part) > 255) valid = false;
         }
+        if (!valid) { notice = "Enter a valid IPv4 address, e.g. 192.168.1.10."; return; }
+        game.joinPvPMatch(address); mode = Mode.JOIN_CONNECTING; notice = "";
+    }
+
+    private boolean handleJoinInput(int keycode) {
+        if (keycode == Input.Keys.ESCAPE) { mode = Mode.MENU; return true; }
+        if (keycode == Input.Keys.ENTER) { connectAddress(); return true; }
+        if (!addressFocused) return false;
+        boolean control = Gdx.input.isKeyPressed(Input.Keys.CONTROL_LEFT) || Gdx.input.isKeyPressed(Input.Keys.CONTROL_RIGHT);
+        if (control && keycode == Input.Keys.V) { pasteAddress(); return true; }
+        if (control && keycode == Input.Keys.A) { selectAll = true; return true; }
+        if (keycode == Input.Keys.BACKSPACE || keycode == Input.Keys.FORWARD_DEL) {
+            if (selectAll) { ipInput.setLength(0); caret = 0; selectAll = false; }
+            else if (keycode == Input.Keys.BACKSPACE && caret > 0) ipInput.deleteCharAt(--caret);
+            else if (keycode == Input.Keys.FORWARD_DEL && caret < ipInput.length()) ipInput.deleteCharAt(caret);
+        } else if (keycode == Input.Keys.LEFT) { caret = Math.max(0, caret - 1); selectAll = false; }
+        else if (keycode == Input.Keys.RIGHT) { caret = Math.min(ipInput.length(), caret + 1); selectAll = false; }
+        else if (keycode == Input.Keys.HOME) { caret = 0; selectAll = false; }
+        else if (keycode == Input.Keys.END) { caret = ipInput.length(); selectAll = false; }
+        return true;
+    }
+
+    private void cancelWaiting() {
+        if (mode == Mode.JOIN_CONNECTING && game.pvpClient() != null) game.pvpClient().cancelPendingConnection();
+        game.leavePvPMatch();
+    }
+    private boolean handleWaitingInput(int keycode) {
+        if (keycode == Input.Keys.ESCAPE) { cancelWaiting(); return true; }
         return false;
     }
 
@@ -173,17 +209,6 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
         shapes.rect(365f, 600f, 550f, 10f);
         shapes.setColor(Palette.BLUE);
         shapes.rect(365f, 130f, 7f, 470f);
-        if (mode == Mode.MENU) {
-            for (int i = 0; i < OPTIONS.length; i++) {
-                float y = 400f - i * 66f;
-                shapes.setColor(i == selected ? Palette.PANEL_LIGHT : Palette.WALL);
-                shapes.rect(465f, y, 350f, 48f);
-                if (i == selected) {
-                    shapes.setColor(Palette.ACCENT);
-                    shapes.rect(465f, y, 6f, 48f);
-                }
-            }
-        }
         shapes.end();
         com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
 
@@ -192,18 +217,16 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
         UiRenderer.centeredText(game.batch(), game.titleFont(), "MULTIPLAYER", 640f, 580f, Palette.TEXT);
         switch (mode) {
             case MENU -> {
-                for (int i = 0; i < OPTIONS.length; i++) {
-                    UiRenderer.centeredText(game.batch(), game.mediumFont(), OPTIONS[i], 640f, 434f - i * 66f, Palette.TEXT);
-                }
+
                 UiRenderer.centeredText(game.batch(), game.font(), "W/S: select    Enter: confirm    Esc: back",
                         640f, 220f, Palette.MUTED);
             }
             case JOIN_INPUT -> {
                 UiRenderer.centeredText(game.batch(), game.mediumFont(), "Host IP address:", 640f, 420f, Palette.TEXT);
-                UiRenderer.centeredText(game.batch(), game.titleFont(), ipInput + "_", 640f, 350f, Palette.ACCENT);
+                UiRenderer.centeredText(game.batch(), game.titleFont(), "", 640f, 350f, Palette.ACCENT);
                 UiRenderer.centeredText(game.batch(), game.font(),
-                        "Digits and . to edit    Backspace: delete    Enter: connect    Esc: cancel",
-                        640f, 250f, Palette.MUTED);
+                        "Click field to edit | Ctrl+A: select all | Ctrl+V: paste",
+                        640f, 190f, Palette.MUTED);
             }
             case HOSTING_WAIT -> {
                 UiRenderer.centeredText(game.batch(), game.mediumFont(),
@@ -211,18 +234,19 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
                 UiRenderer.centeredText(game.batch(), game.font(),
                         "Share your LAN IP address with the other player.", 640f, 385f, Palette.MUTED);
                 UiRenderer.centeredText(game.batch(), game.mediumFont(), "Waiting for an opponent...", 640f, 330f, Palette.ACCENT);
-                UiRenderer.centeredText(game.batch(), game.font(), "Esc: cancel", 640f, 260f, Palette.MUTED);
+                UiRenderer.centeredText(game.batch(), game.font(), "Esc: cancel", 640f, 185f, Palette.MUTED);
             }
             case JOIN_CONNECTING -> {
                 UiRenderer.centeredText(game.batch(), game.mediumFont(), "Connecting to " + ipInput + "...", 640f, 400f, Palette.TEXT);
                 UiRenderer.centeredText(game.batch(), game.font(), "Retrying automatically every 3 seconds.", 640f, 360f, Palette.MUTED);
-                UiRenderer.centeredText(game.batch(), game.font(), "Esc: cancel", 640f, 260f, Palette.MUTED);
+                UiRenderer.centeredText(game.batch(), game.font(), "Esc: cancel", 640f, 185f, Palette.MUTED);
             }
         }
         if (!notice.isEmpty()) {
             UiRenderer.centeredText(game.batch(), game.font(), notice, 640f, 150f, Palette.DANGER);
         }
         game.batch().end();
+        drawMouse();
     }
 
     @Override

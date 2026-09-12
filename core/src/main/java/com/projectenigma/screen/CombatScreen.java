@@ -13,6 +13,9 @@ import com.projectenigma.Palette;
 import com.projectenigma.UiRenderer;
 import com.projectenigma.UtopiaAssets;
 import com.projectenigma.model.BattleAction;
+import com.projectenigma.audio.SoundCue;
+import com.projectenigma.audio.CombatAudio;
+import com.projectenigma.model.ActionAvailability;
 import com.projectenigma.model.BattleEngine;
 import com.projectenigma.model.BattleOutcome;
 import com.projectenigma.model.DungeonEnemy;
@@ -90,6 +93,22 @@ public final class CombatScreen extends AbstractGameScreen {
                 return false;
             }
         });
+        useMouse(viewport);
+        for (int i = 0; i < actions.length; i++) {
+            final int index = i;
+            mouseUi.add((i + 1) + " " + actions[i].label(), 37 + (i % 3) * 155, i < 3 ? 105 : 42, 145, 48,
+                    () -> { selected = index; performSelectedAction(); })
+                    .when(() -> outcome == BattleOutcome.ONGOING).hover(() -> selected = index)
+                    .selected(() -> selected == index).disabled(() -> actionReason(actions[index]));
+        }
+        mouseUi.add("Continue", 130, 80, 270, 52, this::leaveBattle).when(() -> outcome != BattleOutcome.ONGOING)
+                .disabled(() -> turnAnimationTime < TURN_ANIMATION_DURATION ? "Finishing animation..." : "");
+    }
+
+    private String actionReason(BattleAction action) {
+        if (outcome != BattleOutcome.ONGOING) return "Battle finished.";
+        if (turnAnimationTime < TURN_ANIMATION_DURATION) return "Finishing animation...";
+        return ActionAvailability.reason(session.hero, action);
     }
 
     /**
@@ -102,6 +121,9 @@ public final class CombatScreen extends AbstractGameScreen {
      */
     private void performSelectedAction() {
         BattleAction action = actions[selected];
+        String unavailable = actionReason(action);
+        if (!unavailable.isEmpty()) { addLog(unavailable); return; }
+        int heroHealthBefore = session.hero.health, enemyHealthBefore = enemy.health, manaBefore = session.hero.mana;
         TurnResult playerTurn = engine.resolve(session.hero, enemy, action);
         for (String message : playerTurn.messages()) {
             addLog(message);
@@ -109,15 +131,21 @@ public final class CombatScreen extends AbstractGameScreen {
         if (!playerTurn.actionAccepted()) {
             return;
         }
+        CombatAudio.queue(game.sounds(), this, CombatAudio.changes(session.hero.mana < manaBefore,
+                enemy.health < enemyHealthBefore, session.hero.health > heroHealthBefore), 0);
         animatedHeroAction = action;
         animatedEnemyReply = false;
         turnAnimationTime = 0f;
 
         if (playerTurn.outcome() == BattleOutcome.VICTORY) {
             outcome = BattleOutcome.VICTORY;
+            int levelBefore = session.hero.level;
+            int healthBeforeReward = session.hero.health;
             for (String message : session.defeatEnemy(enemy)) {
                 addLog(message);
             }
+            if (session.hero.level > levelBefore) game.sounds().schedule(this, SoundCue.POWER_UP, .85f);
+            if (session.hero.health > healthBeforeReward) game.sounds().schedule(this, SoundCue.HEAL, .60f);
             game.saveGame();
             addLog("Press Enter to return to the dungeon.");
             return;
@@ -132,7 +160,10 @@ public final class CombatScreen extends AbstractGameScreen {
         // ONGOING: covers a completed ATTACK/SKILL, a GUARD, a successful
         // POTION, or a failed RUN attempt -- in every one of those cases the
         // enemy still gets its automatic reply.
+        int healthBeforeReply = session.hero.health;
         TurnResult enemyTurn = engine.resolve(enemy, session.hero, BattleAction.ATTACK);
+        CombatAudio.queue(game.sounds(), this, CombatAudio.changes(false,
+                session.hero.health < healthBeforeReply, false), HERO_ACTION_PHASE);
         animatedEnemyReply = true;
         for (String message : enemyTurn.messages()) {
             addLog(message);
@@ -177,6 +208,7 @@ public final class CombatScreen extends AbstractGameScreen {
         drawArena();
         drawCombatants();
         drawInterface();
+        drawMouse();
     }
 
     private void drawArena() {
@@ -270,24 +302,9 @@ public final class CombatScreen extends AbstractGameScreen {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         UiRenderer.panel(shapes, 22f, 18f, 490f, 170f, Palette.PANEL);
         UiRenderer.panel(shapes, 530f, 18f, 728f, 170f, Palette.PANEL);
-        for (int i = 0; i < actions.length; i++) {
-            float x = 37f + (i % 3) * 155f;
-            float y = i < 3 ? 105f : 42f;
-            shapes.setColor(i == selected ? Palette.PANEL_LIGHT : Palette.WALL);
-            shapes.rect(x, y, 145f, 48f);
-            if (i == selected) {
-                shapes.setColor(Palette.ACCENT);
-                shapes.rect(x, y, 6f, 48f);
-            }
-        }
         shapes.end();
 
         game.batch().begin();
-        for (int i = 0; i < actions.length; i++) {
-            float centerX = 109.5f + (i % 3) * 155f;
-            float y = i < 3 ? 136f : 73f;
-            UiRenderer.centeredText(game.batch(), game.font(), (i + 1) + "  " + actions[i].label(), centerX, y, Palette.TEXT);
-        }
         UiRenderer.text(game.batch(), game.font(), actions[selected].description(), 550f, 174f, Palette.MUTED);
         float logY = 145f;
         for (String line : logLines) {
@@ -295,10 +312,10 @@ public final class CombatScreen extends AbstractGameScreen {
             logY -= 19f;
         }
         if (outcome == BattleOutcome.ONGOING) {
-            UiRenderer.text(game.batch(), game.font(), "W/S or arrows: select    Enter: act    1-5: hotkey    Esc: run",
+            UiRenderer.text(game.batch(), game.font(), "Click action | W/S: select | Enter / 1-5: act | Esc: run",
                     550f, 34f, Palette.MUTED);
         } else {
-            UiRenderer.text(game.batch(), game.mediumFont(), "Press Enter to continue", 877f, 38f, Palette.GOLD);
+            UiRenderer.text(game.batch(), game.mediumFont(), "Click Continue or press Enter", 760f, 38f, Palette.GOLD);
         }
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);

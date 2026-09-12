@@ -13,6 +13,9 @@ import com.projectenigma.Palette;
 import com.projectenigma.UiRenderer;
 import com.projectenigma.UtopiaAssets;
 import com.projectenigma.model.BattleAction;
+import com.projectenigma.audio.SoundCue;
+import com.projectenigma.audio.CombatAudio;
+import com.projectenigma.model.ActionAvailability;
 import com.projectenigma.model.HeroClass;
 import com.projectenigma.network.HeroSnapshot;
 import com.projectenigma.network.MatchStatus;
@@ -61,6 +64,10 @@ public final class PvPCombatScreen extends AbstractGameScreen
 
     private PvPBattleState state;
     private int selected;
+    private boolean suppressSnapshotAudio;
+    private boolean awaitingHost;
+    private BattleAction pendingAction;
+    private boolean potionsExhausted;
     private boolean disconnectedLocally; // guest-only: true between onDisconnected() and the next onStateReceived()
     private float time;
     private float actionAnimationTime = ACTION_ANIMATION_DURATION;
@@ -73,6 +80,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
         this.localPlayerIndex = isHost ? 0 : 1;
         this.match = match;
         this.state = initialState;
+        game.sounds().play(SoundCue.ENCOUNTER);
         addLog("The match begins. " + (isHost ? "You are Player 1." : "You are Player 2."));
 
         camera = new OrthographicCamera();
@@ -123,6 +131,34 @@ public final class PvPCombatScreen extends AbstractGameScreen
                 return false;
             }
         });
+        useMouse(viewport);
+        for (int i = 0; i < actions.length; i++) {
+            final int index = i;
+            mouseUi.add((i + 1) + " " + actions[i].label(), 37 + (i % 3) * 155, i < 3 ? 105 : 42, 145, 48,
+                    () -> { selected = index; submitAction(actions[index]); })
+                    .when(() -> state.status() != MatchStatus.FINISHED && !reconnecting())
+                    .hover(() -> selected = index).selected(() -> selected == index)
+                    .disabled(() -> actionReason(actions[index]));
+        }
+        mouseUi.add("Main Menu", 130, 80, 270, 52, game::leavePvPMatch)
+                .when(() -> state.status() == MatchStatus.FINISHED)
+                .disabled(() -> actionAnimationTime < ACTION_ANIMATION_DURATION ? "Finishing animation..." : "");
+        mouseUi.add("Abandon", 130, 80, 270, 52, this::abandon)
+                .when(() -> state.status() != MatchStatus.FINISHED && reconnecting());
+    }
+
+    private boolean reconnecting() { return disconnectedLocally || state.status() == MatchStatus.WAITING_FOR_RECONNECT; }
+    private String actionReason(BattleAction action) {
+        if (state.status() == MatchStatus.FINISHED) return "Match finished.";
+        if (reconnecting()) return "Waiting for reconnection...";
+        if (awaitingHost) return "Waiting for the host's response...";
+        if (state.currentTurn() != localPlayerIndex) return "Waiting for opponent...";
+        if (actionAnimationTime < ACTION_ANIMATION_DURATION) return "Finishing animation...";
+        HeroSnapshot me = localPlayerIndex == 0 ? state.player0() : state.player1();
+        if (isHost) return match.actionUnavailableReason(localPlayerIndex, action);
+        // Legacy snapshots omit potion counts. Learn exhaustion from the authoritative
+        // rejection, which never spends a turn, instead of inventing a client count.
+        return ActionAvailability.reason(me.health(), me.maxHealth(), me.mana(), potionsExhausted ? 0 : 1, action);
     }
 
     public static PvPCombatScreen forHost(ProjectEnigmaGame game, PvPMatch match) {
@@ -136,11 +172,15 @@ public final class PvPCombatScreen extends AbstractGameScreen
     // ---- action submission -------------------------------------------------
 
     private void submitAction(BattleAction action) {
+        String unavailable = actionReason(action);
+        if (!unavailable.isEmpty()) { addLog(unavailable); return; }
         startActionAnimation(localPlayerIndex, action);
         if (isHost) {
             applyState(match.applyAction(localPlayerIndex, action));
             game.pvpServer().broadcast(state);
         } else {
+            awaitingHost = true;
+            pendingAction = action;
             game.pvpClient().sendAction(action);
             // No local mutation: wait for the host's broadcast via onStateReceived.
         }
@@ -157,6 +197,8 @@ public final class PvPCombatScreen extends AbstractGameScreen
     }
 
     private void applyState(PvPBattleState newState) {
+        if (!suppressSnapshotAudio) CombatAudio.queue(game.sounds(), this, CombatAudio.between(state, newState), 0);
+        suppressSnapshotAudio = false;
         this.state = newState;
         for (String line : newState.log()) {
             addLog(line);
@@ -186,6 +228,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
 
     @Override
     public void onGuestDisconnected() {
+        game.sounds().cancel(this);
         applyState(match.pauseForDisconnect());
         // No one to broadcast to; the host's own screen reflects the pause immediately.
     }
@@ -213,6 +256,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
 
     @Override
     public void onConnected(boolean isReconnect) {
+        if (isReconnect) suppressSnapshotAudio = true;
         disconnectedLocally = false;
         // The host immediately re-broadcasts state on reconnect (see
         // onGuestConnected above); our view updates via onStateReceived.
@@ -220,12 +264,19 @@ public final class PvPCombatScreen extends AbstractGameScreen
 
     @Override
     public void onDisconnected() {
+        game.sounds().cancel(this);
+        suppressSnapshotAudio = true;
+        awaitingHost = false;
         disconnectedLocally = true;
         addLog("Connection to host lost. Reconnecting...");
     }
 
     @Override
     public void onStateReceived(PvPBattleState newState) {
+        if (awaitingHost && pendingAction == BattleAction.POTION
+                && newState.log().stream().anyMatch(line -> line.equals("No potions remain."))) potionsExhausted = true;
+        awaitingHost = false;
+        pendingAction = null;
         disconnectedLocally = false;
         if (state != null) {
             int actor = state.currentTurn();
@@ -292,6 +343,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
         drawArena();
         drawCombatants();
         drawInterface();
+        drawMouse();
     }
 
     private void drawArena() {
@@ -398,33 +450,11 @@ public final class PvPCombatScreen extends AbstractGameScreen
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         UiRenderer.panel(shapes, 22f, 18f, 490f, 170f, Palette.PANEL);
         UiRenderer.panel(shapes, 530f, 18f, 728f, 170f, Palette.PANEL);
-        boolean canAct = state.status() == MatchStatus.IN_PROGRESS && state.currentTurn() == localPlayerIndex;
-        if (canAct) {
-            for (int i = 0; i < actions.length; i++) {
-                float x = 37f + (i % 3) * 155f;
-                float y = i < 3 ? 105f : 42f;
-                shapes.setColor(i == selected ? Palette.PANEL_LIGHT : Palette.WALL);
-                shapes.rect(x, y, 145f, 48f);
-                if (i == selected) {
-                    shapes.setColor(Palette.ACCENT);
-                    shapes.rect(x, y, 6f, 48f);
-                }
-            }
-        }
         shapes.end();
-
         game.batch().begin();
-        if (canAct) {
-            for (int i = 0; i < actions.length; i++) {
-                float centerX = 109.5f + (i % 3) * 155f;
-                float y = i < 3 ? 136f : 73f;
-                UiRenderer.centeredText(game.batch(), game.font(), (i + 1) + "  " + actions[i].label(), centerX, y, Palette.TEXT);
-            }
-            UiRenderer.text(game.batch(), game.font(), actions[selected].description(), 550f, 174f, Palette.MUTED);
-        } else {
-            UiRenderer.centeredText(game.batch(), game.mediumFont(), statusHeadline(), 267f, 105f, Palette.MUTED);
-        }
-
+        String header = state.status() == MatchStatus.IN_PROGRESS && state.currentTurn() == localPlayerIndex && !awaitingHost
+                ? actions[selected].description() : statusHeadline();
+        UiRenderer.text(game.batch(), game.font(), header, 550, 174, Palette.MUTED);
         float logY = 145f;
         for (String line : logLines) {
             UiRenderer.text(game.batch(), game.font(), line, 550f, logY, Palette.TEXT);
@@ -436,7 +466,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
         } else if (state.status() == MatchStatus.WAITING_FOR_RECONNECT || disconnectedLocally) {
             UiRenderer.text(game.batch(), game.font(), "Waiting for reconnection...    Esc: abandon", 550f, 34f, Palette.DANGER);
         } else {
-            UiRenderer.text(game.batch(), game.font(), "W/S: select    Enter: act    1-5: hotkey    Esc: run",
+            UiRenderer.text(game.batch(), game.font(), "Click action | W/S: select | Enter / 1-5: act | Esc: run",
                     550f, 34f, Palette.MUTED);
         }
         game.batch().end();
@@ -444,6 +474,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
     }
 
     private String statusHeadline() {
+        if (awaitingHost) return "Waiting for host response...";
         if (state.status() == MatchStatus.WAITING_FOR_RECONNECT || disconnectedLocally) {
             return "Connection paused...";
         }

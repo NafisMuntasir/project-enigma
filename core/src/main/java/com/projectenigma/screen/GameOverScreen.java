@@ -32,13 +32,7 @@ public final class GameOverScreen extends AbstractGameScreen {
                     return true;
                 }
                 if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
-                    if (selected == 0) {
-                        game.showClassSelect();
-                    } else if (selected == 1) {
-                        game.showMenu();
-                    } else {
-                        game.quit();
-                    }
+                    activateSelection();
                     return true;
                 }
                 if (keycode == Input.Keys.ESCAPE) {
@@ -48,6 +42,18 @@ public final class GameOverScreen extends AbstractGameScreen {
                 return false;
             }
         });
+        useMouse(viewport);
+        for (int i = 0; i < OPTIONS.length; i++) {
+            final int index = i;
+            mouseUi.add(OPTIONS[i], 480, 330 - i * 66, 320, 48, () -> { selected = index; activateSelection(); })
+                    .large().hover(() -> selected = index).selected(() -> selected == index);
+        }
+    }
+
+    private void activateSelection() {
+        if (selected == 0) game.showClassSelect();
+        else if (selected == 1) game.showMenu();
+        else game.quit();
     }
 
     @Override
@@ -76,15 +82,6 @@ public final class GameOverScreen extends AbstractGameScreen {
         shapes.rect(390f, 600f, 500f, 10f);
         shapes.setColor(Palette.BLUE);
         shapes.rect(390f, 125f, 7f, 475f);
-        for (int i = 0; i < OPTIONS.length; i++) {
-            float y = 330f - i * 66f;
-            shapes.setColor(i == selected ? Palette.PANEL_LIGHT : Palette.WALL);
-            shapes.rect(480f, y, 320f, 48f);
-            if (i == selected) {
-                shapes.setColor(Palette.DANGER);
-                shapes.rect(480f, y, 6f, 48f);
-            }
-        }
         shapes.end();
         com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
 
@@ -93,12 +90,11 @@ public final class GameOverScreen extends AbstractGameScreen {
         UiRenderer.centeredText(game.batch(), game.titleFont(), "THE DUNGEON CLAIMS YOU", 640f, 535f, Palette.DANGER);
         UiRenderer.centeredText(game.batch(), game.mediumFont(), "The run has ended, but the layout will never repeat.",
                 640f, 475f, Palette.MUTED);
-        for (int i = 0; i < OPTIONS.length; i++) {
-            UiRenderer.centeredText(game.batch(), game.mediumFont(), OPTIONS[i], 640f, 363f - i * 66f, Palette.TEXT);
-        }
+
         UiRenderer.centeredText(game.batch(), game.font(), "W/S or arrows: select    Enter: confirm",
                 640f, 155f, Palette.MUTED);
         game.batch().end();
+        drawMouse();
     }
 
     @Override

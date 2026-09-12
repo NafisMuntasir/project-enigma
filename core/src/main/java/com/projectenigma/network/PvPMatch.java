@@ -107,6 +107,10 @@ public final class PvPMatch {
         return snapshot(single("The match was abandoned."));
     }
 
+    public synchronized String actionUnavailableReason(int playerIndex, BattleAction action) {
+        return com.projectenigma.model.ActionAvailability.reason(playerIndex == 0 ? hostHero : guestHero, action);
+    }
+
     public synchronized PvPBattleState currentState() {
         return snapshot(new ArrayList<>(0));
     }

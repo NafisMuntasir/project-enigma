@@ -20,6 +20,14 @@ import com.projectenigma.model.GameSession;
 import com.projectenigma.model.TileType;
 
 import java.util.List;
+import java.util.ArrayDeque;
+import com.badlogic.gdx.math.Vector2;
+import com.projectenigma.input.MouseUi;
+import com.projectenigma.model.ActionAvailability;
+import com.projectenigma.model.BattleAction;
+import com.projectenigma.model.DungeonPathfinder;
+import com.projectenigma.model.GridPoint;
+import com.projectenigma.audio.SoundCue;
 
 public final class DungeonScreen extends AbstractGameScreen {
     private static final float WORLD_WIDTH = 20f;
@@ -33,6 +41,14 @@ public final class DungeonScreen extends AbstractGameScreen {
     private final FitViewport worldViewport;
     private final FitViewport uiViewport;
     private final boolean[][] explored;
+
+    private final ArrayDeque<GridPoint> route = new ArrayDeque<>();
+    private GridPoint destination;
+    private DungeonEnemy engagedEnemy;
+    private float routeTimer;
+    private boolean worldPressed;
+    private int pressX, pressY;
+    private final Vector2 worldPointer = new Vector2();
 
     private float renderedPlayerX;
     private float renderedPlayerY;
@@ -68,11 +84,13 @@ public final class DungeonScreen extends AbstractGameScreen {
                     return handleInventoryInput(keycode);
                 }
                 if (keycode == Input.Keys.ESCAPE) {
+                    cancelRoute();
                     pauseVisible = true;
                     pauseSelection = 0;
                     return true;
                 }
                 if (keycode == Input.Keys.I || keycode == Input.Keys.TAB) {
+                    cancelRoute();
                     inventoryVisible = true;
                     return true;
                 }
@@ -87,14 +105,132 @@ public final class DungeonScreen extends AbstractGameScreen {
 
                 int[] direction = directionForKey(keycode);
                 if (direction != null) {
+                    cancelRoute();
                     tryMove(direction[0], direction[1]);
                     moveRepeatTimer = 0.23f;
                     return true;
                 }
                 return false;
             }
+            @Override public boolean touchDown(int x, int y, int pointer, int button) {
+                if (pointer != 0 || !MouseUi.containsScreen(worldViewport, x, y, Gdx.graphics.getHeight())) return false;
+                if (button == Input.Buttons.RIGHT) { cancelRoute(); return true; }
+                worldPressed = button == Input.Buttons.LEFT;
+                pressX = x; pressY = y;
+                return worldPressed;
+            }
+            @Override public boolean touchUp(int x, int y, int pointer, int button) {
+                if (pointer != 0 || button != Input.Buttons.LEFT) return false;
+                boolean clicked = worldPressed && Math.abs(x - pressX) <= 6 && Math.abs(y - pressY) <= 6;
+                worldPressed = false;
+                if (clicked && !pauseVisible && !inventoryVisible
+                        && MouseUi.containsScreen(worldViewport, x, y, Gdx.graphics.getHeight())) {
+                    worldViewport.unproject(worldPointer.set(x, y));
+                    requestRoute(pointerGoal(worldPointer.x, worldPointer.y));
+                }
+                return true;
+            }
         });
+        useMouse(uiViewport).modal(() -> pauseVisible || inventoryVisible);
+        mouseUi.worldHand(() -> !worldHint().isEmpty());
+        mouseUi.add("Inventory [I]", 22, 18, 165, 44, () -> { cancelRoute(); inventoryVisible = true; })
+                .when(() -> !pauseVisible && !inventoryVisible);
+        mouseUi.add("Use Potion [P]", 197, 18, 175, 44, this::drinkPotion)
+                .when(() -> !pauseVisible && !inventoryVisible).disabled(this::potionReason);
+        mouseUi.add("Pause [Esc]", 382, 18, 160, 44, () -> { cancelRoute(); pauseVisible = true; pauseSelection = 0; })
+                .when(() -> !pauseVisible && !inventoryVisible);
+        mouseUi.add("Descend [E]", 552, 18, 160, 44, this::useCurrentTile)
+                .when(() -> !pauseVisible && !inventoryVisible && session.isAtExit());
+        mouseUi.add("Use Potion", 420, 160, 210, 44, this::drinkPotion).when(() -> inventoryVisible && !pauseVisible)
+                .disabled(this::potionReason);
+        mouseUi.add("Close", 650, 160, 210, 44, () -> inventoryVisible = false).when(() -> inventoryVisible && !pauseVisible);
+        for (int i = 0; i < PAUSE_OPTIONS.length; i++) {
+            final int index = i;
+            mouseUi.add(PAUSE_OPTIONS[i], 500, 375 - i * 60, 280, 44, () -> { pauseSelection = index; activatePause(); })
+                    .when(() -> pauseVisible).hover(() -> pauseSelection = index).selected(() -> pauseSelection == index);
+        }
+        // HUD panels must not send movement clicks into the world below them.
+        mouseUi.add("", 20, 575, 390, 125, () -> {}).block()
+                .when(() -> !pauseVisible && !inventoryVisible);
+        mouseUi.add("", 930, 620, 330, 80, () -> {}).block()
+                .when(() -> !pauseVisible && !inventoryVisible);
     }
+
+    private String potionReason() { return ActionAvailability.reason(session.hero, BattleAction.POTION); }
+
+    private void activatePause() {
+        switch (pauseSelection) {
+            case 0 -> pauseVisible = false;
+            case 1 -> { game.saveGame(); setNotice("Game saved."); pauseVisible = false; }
+            case 2 -> game.abandonToMenu();
+            case 3 -> game.quit();
+            default -> throw new IllegalStateException("Unknown pause item");
+        }
+    }
+
+    private void cancelRoute() {
+        route.clear(); destination = null; engagedEnemy = null; routeTimer = 0; worldPressed = false;
+    }
+
+    private void requestRoute(GridPoint goal) {
+        cancelRoute();
+        DungeonMap map = session.dungeon();
+        if (!map.isWalkable(goal.x(), goal.y()) || !explored[goal.x()][goal.y()]) {
+            setNotice("Choose a reachable, explored floor tile."); return;
+        }
+        DungeonEnemy target = session.enemyAt(goal.x(), goal.y());
+        if (target != null && !isVisible(goal.x(), goal.y())) { setNotice("That destination is not reachable."); return; }
+        GridPoint start = new GridPoint(session.playerX, session.playerY);
+        if (goal.equals(start)) return;
+        List<GridPoint> path = DungeonPathfinder.find(map, start, goal, point -> explored[point.x()][point.y()]
+                && (session.enemyAt(point.x(), point.y()) == null
+                    || (target != null && point.equals(goal))));
+        if (path.isEmpty()) { setNotice("No route through explored terrain."); return; }
+        route.addAll(path); destination = goal; engagedEnemy = target;
+    }
+
+    private void updateRoute(float delta) {
+        if (pauseVisible || inventoryVisible || route.isEmpty()) return;
+        routeTimer -= delta;
+        if (routeTimer > 0) return;
+        GridPoint next = route.removeFirst();
+        DungeonEnemy enemy = session.enemyAt(next.x(), next.y());
+        if (!session.canMoveTo(next.x(), next.y()) || !explored[next.x()][next.y()]
+                || Math.abs(next.x() - session.playerX) + Math.abs(next.y() - session.playerY) != 1
+                || (enemy != null && enemy != engagedEnemy)) { cancelRoute(); return; }
+        tryMove(next.x() - session.playerX, next.y() - session.playerY);
+        if (game.getScreen() != this) return;
+        if (route.isEmpty()) { destination = null; engagedEnemy = null; }
+        routeTimer = HELD_MOVE_DELAY;
+    }
+
+    private GridPoint pointerGoal(float x, float y) {
+        // Enemy sheets are 1.5 tiles tall: their visible upper half also counts.
+        for (int i = session.enemies.size() - 1; i >= 0; i--) {
+            DungeonEnemy enemy = session.enemies.get(i);
+            if (enemy.isAlive() && isVisible(enemy.x, enemy.y)
+                    && x >= enemy.x && x < enemy.x + 1 && y >= enemy.y && y < enemy.y + 1.5f)
+                return new GridPoint(enemy.x, enemy.y);
+        }
+        return new GridPoint((int)Math.floor(x), (int)Math.floor(y));
+    }
+
+    private String worldHint() {
+        if (pauseVisible || inventoryVisible || !MouseUi.containsScreen(worldViewport, Gdx.input.getX(), Gdx.input.getY(), Gdx.graphics.getHeight())) return "";
+        worldViewport.unproject(worldPointer.set(Gdx.input.getX(), Gdx.input.getY()));
+        GridPoint target = pointerGoal(worldPointer.x, worldPointer.y);
+        int x = target.x(), y = target.y();
+        if (!session.dungeon().isInside(x, y) || !explored[x][y]) return "";
+        DungeonEnemy enemy = session.enemyAt(x, y);
+        if (enemy != null && isVisible(x, y)) return "Engage " + enemy.displayName();
+        DungeonChest chest = session.chestAt(x, y);
+        if (chest != null && !chest.opened) return "Open chest";
+        if (session.dungeon().exit().equals(new GridPoint(x, y))) return "Walk to stairs; use Descend on arrival";
+        return "";
+    }
+
+    @Override public void pause() { super.pause(); cancelRoute(); }
+    @Override public void hide() { cancelRoute(); super.hide(); }
 
     private boolean handlePauseInput(int keycode) {
         if (keycode == Input.Keys.ESCAPE) {
@@ -110,17 +246,7 @@ public final class DungeonScreen extends AbstractGameScreen {
             return true;
         }
         if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
-            switch (pauseSelection) {
-                case 0 -> pauseVisible = false;
-                case 1 -> {
-                    game.saveGame();
-                    setNotice("Game saved.");
-                    pauseVisible = false;
-                }
-                case 2 -> game.abandonToMenu();
-                case 3 -> game.quit();
-                default -> throw new IllegalStateException("Unknown pause item");
-            }
+            activatePause();
             return true;
         }
         return false;
@@ -141,6 +267,7 @@ public final class DungeonScreen extends AbstractGameScreen {
     private void drinkPotion() {
         int before = session.hero.health;
         if (session.hero.usePotion()) {
+            game.sounds().schedule(this, SoundCue.HEAL, .07f);
             setNotice("Potion restores " + (session.hero.health - before) + " HP.");
             game.saveGame();
         } else if (session.hero.potions <= 0) {
@@ -155,9 +282,13 @@ public final class DungeonScreen extends AbstractGameScreen {
             setNotice("There is nothing to use here.");
             return;
         }
+        cancelRoute();
+        int healthBefore = session.hero.health, manaBefore = session.hero.mana;
         session.beginNextFloor();
         game.saveGame();
         game.showDungeon();
+        if (session.hero.health > healthBefore) game.sounds().play(SoundCue.HEAL);
+        if (session.hero.mana > manaBefore) game.sounds().schedule(game.getScreen(), SoundCue.POWER_UP, .18f);
     }
 
     private void tryMove(int dx, int dy) {
@@ -170,6 +301,7 @@ public final class DungeonScreen extends AbstractGameScreen {
 
         DungeonEnemy enemy = session.enemyAt(targetX, targetY);
         if (enemy != null) {
+            cancelRoute();
             game.startCombat(enemy);
             return;
         }
@@ -177,11 +309,14 @@ public final class DungeonScreen extends AbstractGameScreen {
         session.movePlayerTo(targetX, targetY);
         DungeonChest chest = session.chestAt(targetX, targetY);
         if (chest != null && !chest.opened) {
+            int manaBefore = session.hero.mana;
             List<String> loot = session.openChest(chest);
+            game.sounds().play(SoundCue.CHEST);
+            if (session.hero.mana > manaBefore) game.sounds().schedule(this, SoundCue.POWER_UP, .32f);
             setNotice(String.join("\n", loot));
             game.saveGame();
         } else if (session.isAtExit()) {
-            setNotice("Stairs found. Press E or Enter to descend.");
+            setNotice("Stairs found. Click Descend or press E / Enter.");
         } else if (session.stepsTaken % 25 == 0) {
             game.saveGame();
         }
@@ -237,6 +372,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         }
         int[] direction = directionForKey(key);
         if (direction != null) {
+            cancelRoute();
             tryMove(direction[0], direction[1]);
             moveRepeatTimer = HELD_MOVE_DELAY;
         }
@@ -252,6 +388,9 @@ public final class DungeonScreen extends AbstractGameScreen {
         float safeDelta = Math.min(delta, 0.1f);
         worldAnimationTime += safeDelta;
         updateHeldMovement(safeDelta);
+        if (game.getScreen() != this) return;
+        updateRoute(safeDelta);
+        if (game.getScreen() != this) return;
         renderedPlayerX = MathUtils.lerp(renderedPlayerX, session.playerX + 0.5f, Math.min(1f, safeDelta * 14f));
         renderedPlayerY = MathUtils.lerp(renderedPlayerY, session.playerY + 0.5f, Math.min(1f, safeDelta * 14f));
         if (noticeTime > 0f) {
@@ -263,6 +402,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         ScreenUtils.clear(Palette.VOID);
         updateWorldCamera();
         drawDungeon();
+        drawRoute();
         drawHud();
         if (inventoryVisible) {
             drawInventory();
@@ -270,6 +410,24 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (pauseVisible) {
             drawPauseMenu();
         }
+        drawMouse();
+    }
+
+    private void drawRoute() {
+        if (destination == null) return;
+        ShapeRenderer shapes = game.shapes();
+        shapes.setProjectionMatrix(worldCamera.combined);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(Palette.BLUE_LIGHT);
+        float x = renderedPlayerX, y = renderedPlayerY;
+        for (GridPoint point : route) {
+            shapes.rectLine(x, y, point.x() + .5f, point.y() + .5f, .045f);
+            x = point.x() + .5f; y = point.y() + .5f;
+        }
+        float dx = destination.x(), dy = destination.y();
+        shapes.rect(dx + .1f, dy + .1f, .8f, .045f); shapes.rect(dx + .1f, dy + .855f, .8f, .045f);
+        shapes.rect(dx + .1f, dy + .1f, .045f, .8f); shapes.rect(dx + .855f, dy + .1f, .045f, .8f);
+        shapes.end();
     }
 
     private void updateWorldCamera() {
@@ -415,10 +573,12 @@ public final class DungeonScreen extends AbstractGameScreen {
         UiRenderer.text(game.batch(), game.mediumFont(), "Dungeon Floor " + session.floorNumber, 954f, 682f, Palette.TEXT);
         UiRenderer.text(game.batch(), game.font(), "Enemies " + session.enemies.size() + "    Gold " + session.hero.gold
                 + "    Potions " + session.hero.potions, 954f, 646f, Palette.MUTED);
-        UiRenderer.centeredText(game.batch(), game.font(), "Move: WASD/arrows   Inventory: I/Tab   Potion: P   Pause: Esc",
-                640f, 27f, Palette.MUTED);
+        UiRenderer.centeredText(game.batch(), game.font(), "Click: move | Right-click: stop | WASD",
+                980f, 36f, Palette.MUTED);
+        String hint = worldHint();
+        if (!hint.isEmpty() && notice.isEmpty()) UiRenderer.centeredText(game.batch(), game.font(), hint, 640, 100, Palette.BLUE_LIGHT);
         if (!notice.isEmpty()) {
-            UiRenderer.centeredText(game.batch(), game.mediumFont(), notice, 640f, 94f, Palette.TEXT);
+            UiRenderer.centeredText(game.batch(), game.mediumFont(), notice, 640f, 140f, Palette.TEXT);
         }
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
@@ -444,11 +604,11 @@ public final class DungeonScreen extends AbstractGameScreen {
         UiRenderer.text(game.batch(), game.font(), "Attack: " + session.hero.attack + "    Defense: " + session.hero.defense,
                 415f, 416f, Palette.MUTED);
         UiRenderer.text(game.batch(), game.font(), "Health", 415f, 370f, Palette.TEXT);
-        UiRenderer.text(game.batch(), game.font(), "Mana", 415f, 323f, Palette.TEXT);
+        UiRenderer.text(game.batch(), game.font(), "Energy", 415f, 323f, Palette.TEXT);
         UiRenderer.text(game.batch(), game.mediumFont(), "Potions: " + session.hero.potions, 415f, 260f, Palette.GOLD);
         UiRenderer.text(game.batch(), game.mediumFont(), "Gold: " + session.hero.gold, 690f, 260f, Palette.GOLD);
         UiRenderer.centeredText(game.batch(), game.font(), "P / Enter: use potion    I / Tab / Esc: close",
-                640f, 180f, Palette.MUTED);
+                640f, 223f, Palette.MUTED);
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }
@@ -462,23 +622,10 @@ public final class DungeonScreen extends AbstractGameScreen {
         UiRenderer.panel(shapes, 450f, 150f, 380f, 440f, Palette.PANEL_LIGHT);
         shapes.setColor(Palette.ACCENT);
         shapes.rect(450f, 580f, 380f, 10f);
-        for (int i = 0; i < PAUSE_OPTIONS.length; i++) {
-            float y = 375f - i * 60f;
-            shapes.setColor(i == pauseSelection ? Palette.PANEL_LIGHT : Palette.WALL);
-            shapes.rect(500f, y, 280f, 44f);
-            if (i == pauseSelection) {
-                shapes.setColor(Palette.ACCENT);
-                shapes.rect(500f, y, 6f, 44f);
-            }
-        }
         shapes.end();
 
         game.batch().begin();
         UiRenderer.centeredText(game.batch(), game.titleFont(), "PAUSED", 640f, 535f, Palette.TEXT);
-        for (int i = 0; i < PAUSE_OPTIONS.length; i++) {
-            UiRenderer.centeredText(game.batch(), game.mediumFont(), PAUSE_OPTIONS[i], 640f,
-                    407f - i * 60f, Palette.TEXT);
-        }
         UiRenderer.centeredText(game.batch(), game.font(), "Esc: resume", 640f, 178f, Palette.MUTED);
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);

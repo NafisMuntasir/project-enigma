@@ -25,7 +25,7 @@ See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art p
 - Four utopian sci-fi enemy archetypes: Recon Drone, Aegis Robot, Helix Cyborg, and Enhanced Warden
 - Inventory/status overlay and field potion use
 - New game, continue, automatic saves, manual saves, and safe window-close saves
-- Complete keyboard control across menus, exploration, overlays, and combat
+- Complete mouse and keyboard control across menus, exploration, overlays, and combat
 - LAN Host/Join flow with reconnect handling and synchronized PvP state
 - 64x64 utopian dungeon tiles with dark graphite walls and red/blue procedural accent variation
 - Four-direction idle/walk animation sheets for all heroes and enemies
@@ -101,6 +101,37 @@ On macOS, use:
 ```bash
 java -XstartOnFirstThread -jar lwjgl3/build/libs/PROJECT-Enigma.jar
 ```
+
+## Sound effects
+
+Eight original sci-fi effects cover mouse hover, accepted clicks, damage, healing,
+chest opening, tech skills, encounters, and power-ups. Damage/healing works for
+both sides of solo/PvP battles; gameplay effects also work with keyboard actions.
+Power-up audio marks level-ups and actual energy restoration. UI effects are
+quieter than combat cues, and hover is emitted once per option entry.
+
+Effects load once from `assets/audio`, are included in the runnable JAR, and are
+released on shutdown. Failed actions, already-open chests, duplicate network
+snapshots, and reconnect synchronization do not replay combat/reward sounds.
+Audio failure does not prevent the game from running.
+
+See `assets/audio/README.md` for the cue list and source information. Regenerate
+with `python tools/generate_sound_effects.py`; add `--preview` for a combined
+`build/sfx-preview.wav` audition in the order hover, click, damage, heal, chest,
+skill, encounter, power-up.
+
+## Mouse controls
+
+- **Menus:** hover to highlight, press and release the left button on the same option to activate. Continue is disabled without a save.
+- **Operatives:** click a card, then Begin (solo) or Ready (PvP). Back cancels; Ready locks the selection while waiting for the opponent.
+- **Explore:** click an explored floor tile to follow the blue route. Paths go around walls and avoid enemy tiles. Click again to retarget; right-click stops. Unreachable clicks cancel the route and explain why.
+- **Interact:** click a chest to approach and open it; click a visible enemy to approach and fight. Click stairs to approach, then click Descend to change floors.
+- **HUD:** Inventory, Use Potion, Pause, and contextual Descend buttons are clickable. Inventory has Use Potion and Close; pause has Resume, Save Game, Main Menu, and Quit.
+- **Combat:** click an action; hover for descriptions and unavailable-action explanations. Inputs lock during animations and while a PvP request awaits the host. Click Continue after solo combat or Main Menu after PvP.
+- **Multiplayer:** click Host or Join. Click the address field to edit an IPv4 address; Ctrl+A selects all, Ctrl+V or Paste inserts the clipboard, and Connect joins. Cancel stops hosting/connecting; Abandon exits a disconnected match.
+- **Focus:** keyboard movement, overlays, window focus loss, and screen changes cancel mouse travel. UI and letterbox clicks never move the operative. All previous keyboard shortcuts remain available.
+
+PvP keeps its existing network format. Because guest snapshots do not include potion counts, an exhausted-potion attempt may first be rejected by the host (without spending a turn); further potion clicks are then disabled for that match.
 
 ## Keyboard controls
 

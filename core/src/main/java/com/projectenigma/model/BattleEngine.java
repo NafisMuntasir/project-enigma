@@ -127,6 +127,8 @@ public final class BattleEngine {
                 + (critical ? " (critical)" : "") + guardNote + ".");
     }
 
+    public static int skillManaCost() { return SKILL_MANA_COST; }
+
     public static int potionHealAmount() {
         return POTION_HEAL_AMOUNT;
     }

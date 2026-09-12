@@ -23,6 +23,7 @@ public final class ClassSelectScreen extends AbstractGameScreen {
     private final String title;
     private int selected;
     private float time;
+    private boolean submitted;
 
     /** Single-player: confirming starts a new dungeon run immediately, as before. */
     public ClassSelectScreen(ProjectEnigmaGame game) {
@@ -51,6 +52,7 @@ public final class ClassSelectScreen extends AbstractGameScreen {
         useInput(new InputAdapter() {
             @Override
             public boolean keyDown(int keycode) {
+                if (submitted && keycode != Input.Keys.ESCAPE) return true;
                 if (keycode == Input.Keys.LEFT || keycode == Input.Keys.A
                         || keycode == Input.Keys.UP || keycode == Input.Keys.W) {
                     selected = Math.floorMod(selected - 1, classes.length);
@@ -62,7 +64,7 @@ public final class ClassSelectScreen extends AbstractGameScreen {
                     return true;
                 }
                 if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
-                    ClassSelectScreen.this.onConfirm.accept(classes[selected]);
+                    confirmSelection();
                     return true;
                 }
                 if (keycode == Input.Keys.ESCAPE) {
@@ -72,6 +74,23 @@ public final class ClassSelectScreen extends AbstractGameScreen {
                 return false;
             }
         });
+        useMouse(viewport);
+        for (int i = 0; i < classes.length; i++) {
+            final int index = i;
+            mouseUi.add("", 45 + i * 246, 160, 206, 410, () -> selected = index).outline()
+                    .selected(() -> selected == index).disabled(() -> submitted ? "Waiting for the other player." : "");
+        }
+        mouseUi.add("Back", 380, 55, 200, 48, onCancel);
+        mouseUi.add(() -> submitted ? "Waiting for opponent..." : (isPvP() ? "Ready" : "Begin"),
+                620, 55, 280, 48, this::confirmSelection)
+                .disabled(() -> submitted ? "Waiting for the other player." : "");
+    }
+
+    private boolean isPvP() { return title.contains("PVP"); }
+    private void confirmSelection() {
+        if (submitted) return;
+        submitted = true;
+        onConfirm.accept(classes[selected]);
     }
 
     @Override
@@ -127,9 +146,10 @@ public final class ClassSelectScreen extends AbstractGameScreen {
             UiRenderer.centeredText(game.batch(), game.font(), "HP " + heroClass.health() + "   EN " + heroClass.mana(), centerX, 244f, Palette.TEXT);
             UiRenderer.centeredText(game.batch(), game.font(), "ATK " + heroClass.attack() + "   DEF " + heroClass.defense(), centerX, 212f, Palette.TEXT);
         }
-        UiRenderer.centeredText(game.batch(), game.font(), "A/D or arrows: choose    Enter: begin    Esc: back",
-                640f, 78f, Palette.TEXT);
+        UiRenderer.centeredText(game.batch(), game.font(), "Click a card, then Begin / Ready. Keyboard: A/D choose, Enter confirm, Esc back.",
+                640f, 32f, Palette.TEXT);
         game.batch().end();
+        drawMouse();
     }
 
     @Override
