@@ -31,6 +31,12 @@ public final class PvPClient implements AutoCloseable {
         void onConnected(boolean isReconnect);
         void onDisconnected();
         void onStateReceived(PvPBattleState state);
+
+        /** Race-to-PvP only. Default no-op -- see {@code PvPServer.EventListener.onReadyForPvp}. */
+        default void onRaceStart(RaceStartPacket packet) { }
+
+        /** Race-to-PvP only. Default no-op -- see {@code PvPServer.EventListener.onReadyForPvp}. */
+        default void onRaceTimerSync(RaceTimerSyncPacket packet) { }
     }
 
     private static final int RECONNECT_INTERVAL_SECONDS = 3;
@@ -98,6 +104,11 @@ public final class PvPClient implements AutoCloseable {
         }
     }
 
+    /** Race-to-PvP only: sent once, when this client's own exploration timer ends. */
+    public void sendReadyForPvp(HeroLoadout loadout) {
+        send(new ReadyForPvPPacket(loadout));
+    }
+
     private void send(Object payload) {
         PvPConnection current = connection;
         if (current == null) {
@@ -159,7 +170,12 @@ public final class PvPClient implements AutoCloseable {
                 public void onReceived(Object payload) {
                     if (payload instanceof PvPBattleState state) {
                         enqueue(() -> listener.onStateReceived(state));
+                    } else if (payload instanceof RaceStartPacket packet) {
+                        enqueue(() -> listener.onRaceStart(packet));
+                    } else if (payload instanceof RaceTimerSyncPacket packet) {
+                        enqueue(() -> listener.onRaceTimerSync(packet));
                     }
+                    // Anything else (a stray/unexpected type) is silently ignored.
                 }
 
                 @Override

@@ -39,7 +39,21 @@ public final class ClassSelectScreen extends AbstractGameScreen {
      * of leaked in the background.
      */
     public ClassSelectScreen(ProjectEnigmaGame game, Consumer<HeroClass> onConfirm) {
-        this(game, onConfirm, game::leavePvPMatch, "CHOOSE YOUR PVP OPERATIVE");
+        this(game, onConfirm, "CHOOSE YOUR PVP OPERATIVE");
+    }
+
+    /**
+     * Same as {@link #ClassSelectScreen(ProjectEnigmaGame, Consumer)} with a
+     * caller-supplied title. Used by Race-to-PvP ({@code
+     * ProjectEnigmaGame.showRaceClassSelect()}) so the screen reads "...FOR
+     * THE PVP RACE" instead of the classic PvP wording, while still being
+     * treated as a PvP-flavored selection (the confirm button reads "Ready"
+     * whenever the title contains "PVP" -- see {@link #isPvP()}) and still
+     * routing Esc through {@code game::leavePvPMatch} for symmetric
+     * network cleanup.
+     */
+    public ClassSelectScreen(ProjectEnigmaGame game, Consumer<HeroClass> onConfirm, String title) {
+        this(game, onConfirm, game::leavePvPMatch, title);
     }
 
     private ClassSelectScreen(ProjectEnigmaGame game, Consumer<HeroClass> onConfirm, Runnable onCancel, String title) {

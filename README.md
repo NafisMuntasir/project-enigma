@@ -27,6 +27,7 @@ See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art p
 - New game, continue, automatic saves, manual saves, and safe window-close saves
 - Complete mouse and keyboard control across menus, exploration, overlays, and combat
 - LAN Host/Join flow with reconnect handling and synchronized PvP state
+- Race-to-PvP mode: both players explore their own independent dungeon for a timed countdown, then fight using the heroes they grew
 - 64x64 utopian dungeon tiles with dark graphite walls and red/blue procedural accent variation
 - Four-direction idle/walk animation sheets for all heroes and enemies
 - Idle, attack, skill, guard, hurt, and defeat battle animations
@@ -126,12 +127,23 @@ skill, encounter, power-up.
 - **Operatives:** click a card, then Begin (solo) or Ready (PvP). Back cancels; Ready locks the selection while waiting for the opponent.
 - **Explore:** click an explored floor tile to follow the blue route. Paths go around walls and avoid enemy tiles. Click again to retarget; right-click stops. Unreachable clicks cancel the route and explain why.
 - **Interact:** click a chest to approach and open it; click a visible enemy to approach and fight. Click stairs to approach, then click Descend to change floors.
-- **HUD:** Inventory, Use Potion, Pause, and contextual Descend buttons are clickable. Inventory has Use Potion and Close; pause has Resume, Save Game, Main Menu, and Quit.
+- **HUD:** Inventory, Use Potion, Pause, and contextual Descend buttons are clickable. Inventory has Use Potion and Close; pause has Resume, Save Game, Main Menu, and Quit (Race Mode's pause menu is just Resume and Abandon Race, since a race session never saves).
 - **Combat:** click an action; hover for descriptions and unavailable-action explanations. Inputs lock during animations and while a PvP request awaits the host. Click Continue after solo combat or Main Menu after PvP.
-- **Multiplayer:** click Host or Join. Click the address field to edit an IPv4 address; Ctrl+A selects all, Ctrl+V or Paste inserts the clipboard, and Connect joins. Cancel stops hosting/connecting; Abandon exits a disconnected match.
+- **Multiplayer:** click Host or Join. Toggle "Race Mode" first to explore-then-fight instead of an immediate duel — see below. Click the address field to edit an IPv4 address; Ctrl+A selects all, Ctrl+V or Paste inserts the clipboard, and Connect joins. Cancel stops hosting/connecting; Abandon exits a disconnected match.
 - **Focus:** keyboard movement, overlays, window focus loss, and screen changes cancel mouse travel. UI and letterbox clicks never move the operative. All previous keyboard shortcuts remain available.
 
 PvP keeps its existing network format. Because guest snapshots do not include potion counts, an exhausted-potion attempt may first be rejected by the host (without spending a turn); further potion clicks are then disabled for that match.
+
+**Race Mode:** toggle it on in the Multiplayer menu before Host/Join, and
+use the "-"/"+" buttons (or Left/Right while it's selected) to set the
+exploration length from 30 seconds to 10 minutes — the host's choice is
+what counts, sent to the guest automatically. Both players pick a class,
+then explore their own independent (but identically-seeded) dungeon until
+the countdown time-bar at the top of the screen runs out. When time's up,
+the screen shows "Waiting for opponent" while the other player finishes;
+once both are done, the fight begins using the heroes each player
+actually grew (level, HP/MP, attack, defense, potions). Esc or "Abandon
+Race" leaves at any point. See `DESIGN.md` §10 for the full design.
 
 ## Keyboard controls
 

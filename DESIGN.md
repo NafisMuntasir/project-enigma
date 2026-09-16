@@ -33,6 +33,14 @@ went through and how it changed the design.
    `UtopiaAssets` owns every sheet; dungeon, PvE, PvP, class-selection, and
    menu screens only request frames, so the LAN protocol and authoritative
    battle rules remain unchanged.
+6. **Race-to-PvP mode added** (this revision): two players now each get
+   their own independent single-player exploration phase, synced by a
+   host-owned countdown, before converging into the existing PvP flow.
+   See §10. No existing classic-PvP or single-player code path changed
+   behavior — Race mode is additive, reusing the same `PvPServer`/
+   `PvPClient`/`PvPMatch`/`PvPCombatScreen`/`DungeonScreen` machinery with
+   new packet types and a `raceMode` flag rather than parallel copies of
+   any of them.
 
 **Why sockets instead of another library (e.g. Netty):** Netty solves a
 different problem than this one -- it's an async, event-loop I/O framework
@@ -79,6 +87,21 @@ turned out to be misplaced on exactly the piece that mattered most:
   calls either class makes -- which caught real errors before you had to.
   Run `./gradlew build` as step one below to get the real compiler's
   opinion with the actual libGDX jar.
+- **Race-to-PvP (this revision), same caveat applies again:**
+  `HeroLoadout`, `RaceStartPacket`, `RaceTimerSyncPacket`,
+  `ReadyForPvPPacket` (all pure Java, no libGDX) were compiled and
+  exercised with `HeroLoadoutTest`; the extended `PvPServer`/`PvPClient`
+  dispatch for the three new packet types was compiled against the same
+  Gdx/Application stub as above and exercised end-to-end over **real
+  localhost sockets** in `RaceModePacketsTest` -- a real `PvPServer` sends
+  `RaceStartPacket` and two `RaceTimerSyncPacket`s (including the
+  `secondsRemaining == 0` end-of-exploration signal) to a real connected
+  `PvPClient`, and the client sends a `ReadyForPvPPacket` back, all
+  asserted for exact round-trip equality. `ProjectEnigmaGame`,
+  `DungeonScreen`, `MultiplayerMenuScreen`, and `ClassSelectScreen`'s
+  changes could **not** be compiled here for the same libGDX-jar reason as
+  the rest of the screen layer always couldn't — read them carefully
+  before trusting them, and run `./gradlew build test` as step one.
 
 ---
 
@@ -135,6 +158,32 @@ Only new/modified files are included in this archive. Everything else in
 your project is untouched — copy these files over the matching paths.
 `NetworkRegistration.java` from the previous revision is gone; plain Java
 serialization needs no class registration.
+
+**This revision (Race-to-PvP) additionally adds/modifies:**
+
+```
+core/src/main/java/com/projectenigma/
+  network/
+    HeroLoadout.java             NEW    full grown-hero transfer, sanity-clamped on arrival
+    RaceStartPacket.java         NEW
+    RaceTimerSyncPacket.java     NEW
+    ReadyForPvPPacket.java       NEW
+    PvPServer.java                MOD   + sendToGuest(Object), + onReadyForPvp default method
+    PvPClient.java                MOD   + sendReadyForPvp, + onRaceStart/onRaceTimerSync default methods
+  screen/
+    ClassSelectScreen.java        MOD   + title-overload constructor (Race mode's own wording)
+    MultiplayerMenuScreen.java    MOD   + "Race Mode: ON/OFF" toggle
+    DungeonScreen.java             MOD   + raceMode flag, timer/time-bar HUD, waiting-for-opponent
+                                          overlay, race-only pause menu, guarded SaveService calls
+  ProjectEnigmaGame.java           MOD   + full Race-to-PvP lifecycle (see §10)
+
+core/src/test/java/com/projectenigma/network/
+  HeroLoadoutTest.java           NEW    clamping/round-trip
+  RaceModePacketsTest.java       NEW    real-socket dispatch test for the 3 new packets
+
+DESIGN.md                          MOD   this section
+README.md                          MOD   brief mention under Multiplayer
+```
 
 ---
 
@@ -453,6 +502,171 @@ only place that ever sees a `String[] args`.
   plain `ObjectInputStream.readObject()` trusts whatever bytes arrive on
   the socket — all fine for a LAN Phase 1 between two consenting
   players, not fine to expose past that without hardening.
+- **Race-to-PvP specific (this revision):**
+  - Exploration duration is chosen per-host from a fixed preset list on
+    `MultiplayerMenuScreen` (30s-10m) — no free-form/custom value entry,
+    and only the host's choice is used (the guest's own selector, if they
+    also toggle Race Mode before joining, is ignored).
+  - A disconnect during exploration or the ready/transition window gets
+    only a log line, not a UI notice — the remaining player just keeps
+    exploring/waiting indefinitely until they manually press Esc /
+    "Abandon Race." There is no "solo continuation," auto-win, or
+    reconnect-into-an-in-progress-exploration path.
+  - Best-of-one: reaching PvP always plays exactly one `PvPMatch` fight
+    (whatever the existing PvP flow already does), never a round series.
+  - `HeroLoadout`'s anti-cheat clamp (see its Javadoc) is a sanity
+    ceiling, not a real economy-balance check — it stops "999999 attack,"
+    not "slightly-too-generous-for-this-exact-seed" claims. Good enough
+    for two consenting LAN players, not for anything adversarial.
+
+---
+
+## 10. Race-to-PvP
+
+Two players each get their own independent single-player exploration
+phase — same `GameSession`/`DungeonScreen`/`BattleEngine` rules as normal
+single-player — for a fixed duration, synchronized by a host-owned
+countdown, and then converge into the *existing* PvP flow (§1-9,
+unchanged) using the heroes they actually grew instead of fresh
+level-1s. Built entirely on top of the machinery above: no parallel
+`PvPMatch`, no parallel `PvPCombatScreen`, no parallel dungeon logic.
+
+### State machine (per player)
+
+```
+NONE --(both classes picked)--> EXPLORING --(exploration ends)--> WAITING_FOR_PVP --(both sides ready)--> [PvPCombatScreen, existing flow]
+```
+
+- Entered from `MultiplayerMenuScreen`'s new "Race Mode: ON/OFF" toggle,
+  which changes what the existing Host/Join buttons do
+  (`hostRaceMatch()`/`joinRaceMatch()` vs. `hostPvPMatch()`/`joinPvPMatch()`)
+  rather than duplicating a second pair of buttons for a mode that only
+  changes what happens *after* the connection is made.
+- Class selection reuses `ClassSelectScreen`/`PvPClassSelectPacket`
+  unchanged (a new title-only constructor overload distinguishes the
+  screen's wording; `isPvP()`'s "Ready" vs. "Begin" button-label check
+  still matches because the new title also contains "PVP").
+- **EXPLORING → WAITING_FOR_PVP** is triggered by:
+  - the host's own local countdown reaching zero (host is always
+    authoritative for this transition — a guest's local clock never
+    ends its own exploration, see `RaceTimerSyncPacket`'s Javadoc), or
+  - the guest receiving a `RaceTimerSyncPacket` with `secondsRemaining <= 0`, or
+  - either player's hero dying in a regular single-player fight during
+    exploration (`ProjectEnigmaGame.showGameOver()` special-cases this —
+    see its Javadoc — instead of showing `GameOverScreen`, which has no
+    "New Run" that makes sense mid-race and would otherwise wrongly call
+    `SaveService.deleteSave()` against the player's real save).
+- The host keeps ticking/broadcasting the shared countdown
+  (`raceTimerActive`) even after its **own** exploration ends early
+  (e.g. its hero died) — the guest is still entitled to the full
+  duration, so "am I personally still exploring" (`raceState`) and "is
+  the host still the shared timekeeper" (`raceTimerActive`) are
+  deliberately separate flags.
+- **WAITING_FOR_PVP → PvP** happens once the host has both its own
+  finished exploration and the guest's `ReadyForPvPPacket` (in either
+  order — `tryBeginRaceMatch()` is a no-op until both are present), at
+  which point the host builds a real `PvPMatch` from `session.hero` (its
+  own, actually-progressed `Hero` object) and `HeroLoadout.toHero()`
+  (the guest's, reconstructed and sanity-clamped) and hands off to
+  `PvPCombatScreen.forHost`/`forGuest` exactly as classic PvP does.
+
+### New packets (`network/`, all `record`s, `implements Serializable`)
+
+| Packet | Direction | Purpose |
+|---|---|---|
+| `RaceStartPacket(dungeonSeed, durationSeconds)` | host → guest | Sent once, right after both classes are picked. Same seed both sides so the dungeon *layout* is identical (fair), even though each player's session (enemies killed, chests opened, position) is independently mutable from that point on. |
+| `RaceTimerSyncPacket(secondsRemaining)` | host → guest | Periodic (every 5s) drift correction for the guest's locally-ticked display countdown, **and** — when `secondsRemaining <= 0` — the sole authoritative signal that ends the guest's exploration. Doubles as both to avoid a fourth packet type. |
+| `ReadyForPvPPacket(HeroLoadout)` | guest → host | Sent once, when the guest's exploration ends. |
+| `HeroLoadout(heroClass, level, maxHealth, health, maxMana, mana, attack, defense, potions)` | (payload, not sent standalone) | The guest's actual grown hero. See below for why this isn't just `HeroSnapshot`. |
+
+`PvPServer.sendToGuest(Object)` is a new generic one-shot send that
+`broadcast(PvPBattleState)` now delegates to, shared by `RaceStartPacket`/
+`RaceTimerSyncPacket` since neither has (or needs) a battle-state shape of
+its own. `PvPServer.EventListener.onReadyForPvp` and
+`PvPClient.EventListener.onRaceStart`/`onRaceTimerSync` are **default
+no-op methods**, specifically so `PvPCombatScreen` and classic PvP's
+lobby listener in `ProjectEnigmaGame` never had to change to keep
+implementing these interfaces.
+
+### Why `HeroLoadout` isn't `HeroSnapshot`
+
+`HeroSnapshot` is a live, once-per-turn, display-only broadcast the host
+sends for the duration of an *already-running* match, and it deliberately
+omits `attack`/`defense`/`potions` so a client never has the fields it'd
+need to fake damage math — that trust decision repeats every turn.
+`HeroLoadout` is sent exactly once, *before any match exists*, describing
+progress the guest legitimately earned in its own single-player run —
+there's no repeated trust decision, only a one-time transfer, which
+`HeroLoadout.toHero()` sanity-clamps against what any legitimate level-up
+chain could produce (see its Javadoc) rather than trusting it blindly.
+
+### Threading
+
+No new threads, no new synchronization primitives. `RaceStartPacket`/
+`RaceTimerSyncPacket`/`ReadyForPvPPacket` flow through the exact same
+`ConcurrentLinkedQueue` + `Gdx.app.postRunnable` path described in §9 —
+`PvPServer`/`PvPClient`'s connection-reader threads only ever enqueue a
+`Runnable` and post it to the render thread; every line of new game logic
+in `ProjectEnigmaGame` (`tickRaceTimer`, `completeExplorationAndSendReady`,
+`tryBeginRaceMatch`, etc.) runs there, same as the rest of the PvP
+lifecycle. The one new per-frame cost is `tickRaceTimer(delta)`, called
+from `ProjectEnigmaGame.render()` alongside the existing `sounds.update()`
+call — a handful of float comparisons and, at most once every 5 seconds,
+one `PvPConnection.send()` — not measurable against a frame budget.
+`DungeonScreen`'s race-mode timer bar reuses a single cached `Color`
+field (`raceTimerColor`) instead of allocating one per frame for the
+low-time flash effect, matching the no-per-frame-allocation discipline
+`SoundEffects`/`UtopiaAssets` already follow elsewhere in this codebase.
+
+### Save-file safety
+
+A Race-to-PvP `GameSession` never touches `SaveService`. This is enforced
+in two places on purpose, not one:
+- `DungeonScreen`'s own call sites skip `game.saveGame()` when
+  `raceMode` is true (chest loot, periodic autosave, potion use, next
+  floor).
+- `ProjectEnigmaGame.saveGame()` itself additionally no-ops whenever
+  `raceSessionActive` is true, which also covers the paths that call it
+  *unconditionally* regardless of mode — `quit()` and `dispose()` (window
+  close) — that a screen-level guard alone would have missed. Race mode's
+  pause menu also swaps in `{"Resume", "Abandon Race"}` instead of the
+  normal `{"Resume", "Save Game", "Main Menu", "Quit"}`, since "Main
+  Menu"'s `abandonToMenu()` would otherwise still try to save the race
+  session under the real save's name.
+
+### Known limitations (Phase 1, this revision)
+
+See §8's new "Race-to-PvP specific" bullets: no UI notice for a
+mid-exploration disconnect, always best-of-one once PvP starts, and a
+generous-but-not-tight anti-cheat clamp on the transferred hero.
+
+### Follow-up fixes made after initial review
+
+- **Configurable duration.** `MultiplayerMenuScreen` now has a "-"/"+"
+  duration selector (30s to 10m presets, mouse or Left/Right while the
+  Race Mode row is selected) instead of a code-only fixed value. Only the
+  *host's* choice matters — it's carried to the guest inside
+  `RaceStartPacket`; `ProjectEnigmaGame.RACE_DEFAULT_DURATION_SECONDS`
+  (180s) remains the fallback for classic PvP and the menu's default
+  selection.
+- **Guest-side race-state reset on entering combat.** `enterPvPCombatAsGuest()`
+  didn't reset `raceState` back to `NONE` (only the host side did, inside
+  `tryBeginRaceMatch()`) — harmless in isolation, but a real gap once a
+  resend safety net (below) needed to know when to stop.
+- **Ready-packet resend safety net.** A guest stuck in `WAITING_FOR_PVP`
+  now re-sends its `ReadyForPvPPacket` every 2 seconds
+  (`tickRaceReadyResend`) until the match actually starts. The handshake
+  guard itself was re-audited and traced end-to-end for both possible
+  orderings (host confirms/finishes first vs. guest first) and found to
+  be correctly gated in every case (`tryBeginRaceMatch()` cannot proceed
+  without both `raceHostFinished` and a non-null `raceGuestLoadout`) —
+  this resend exists as defense-in-depth against anything not caught by
+  that trace (a live TCP connection shouldn't lose a message, but this
+  makes the one-shot handshake self-healing rather than a single point of
+  failure with no recovery). It's fully idempotent on the host: a
+  duplicate arriving before the match exists just re-confirms the same
+  loadout; one arriving after lands on `PvPCombatScreen`'s default no-op
+  `onReadyForPvp` and is ignored.
 
 ---
 

@@ -3,6 +3,7 @@ package com.projectenigma.screen;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputAdapter;
+import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -34,8 +35,13 @@ public final class DungeonScreen extends AbstractGameScreen {
     private static final float WORLD_HEIGHT = 11.25f;
     private static final float HELD_MOVE_DELAY = 0.095f;
     private static final String[] PAUSE_OPTIONS = {"Resume", "Save Game", "Main Menu", "Quit"};
+    /** Used instead of PAUSE_OPTIONS in Race-to-PvP mode: no Save/Main-Menu path that could touch the real save file mid-race. */
+    private static final String[] RACE_PAUSE_OPTIONS = {"Resume", "Abandon Race"};
 
     private final GameSession session;
+    /** True only for a Race-to-PvP exploration-phase session; see {@link #DungeonScreen(ProjectEnigmaGame, GameSession, boolean)}. */
+    private final boolean raceMode;
+    private final String[] pauseOptions;
     private final OrthographicCamera worldCamera;
     private final OrthographicCamera uiCamera;
     private final FitViewport worldViewport;
@@ -62,8 +68,24 @@ public final class DungeonScreen extends AbstractGameScreen {
     private UtopiaAssets.Direction facing = UtopiaAssets.Direction.DOWN;
 
     public DungeonScreen(ProjectEnigmaGame game, GameSession session) {
+        this(game, session, false);
+    }
+
+    /**
+     * @param raceMode true for a Race-to-PvP exploration-phase session:
+     *                 disables every {@code SaveService} call (this session
+     *                 is never the player's real save and must never
+     *                 overwrite it), swaps the pause menu for {@link
+     *                 #RACE_PAUSE_OPTIONS}, and adds the countdown
+     *                 time-bar and "waiting for opponent" overlay driven by
+     *                 {@code game.raceSecondsRemaining()}/{@code
+     *                 game.isRaceWaitingForOpponent()}.
+     */
+    public DungeonScreen(ProjectEnigmaGame game, GameSession session, boolean raceMode) {
         super(game);
         this.session = session;
+        this.raceMode = raceMode;
+        this.pauseOptions = raceMode ? RACE_PAUSE_OPTIONS : PAUSE_OPTIONS;
         DungeonMap map = session.dungeon();
         explored = new boolean[map.width()][map.height()];
         renderedPlayerX = session.playerX + 0.5f;
@@ -77,6 +99,12 @@ public final class DungeonScreen extends AbstractGameScreen {
         useInput(new InputAdapter() {
             @Override
             public boolean keyDown(int keycode) {
+                if (isWaitingForOpponent()) {
+                    if (keycode == Input.Keys.ESCAPE) {
+                        game.abandonRace();
+                    }
+                    return true;
+                }
                 if (pauseVisible) {
                     return handlePauseInput(keycode);
                 }
@@ -113,7 +141,7 @@ public final class DungeonScreen extends AbstractGameScreen {
                 return false;
             }
             @Override public boolean touchDown(int x, int y, int pointer, int button) {
-                if (pointer != 0 || !MouseUi.containsScreen(worldViewport, x, y, Gdx.graphics.getHeight())) return false;
+                if (pointer != 0 || isWaitingForOpponent() || !MouseUi.containsScreen(worldViewport, x, y, Gdx.graphics.getHeight())) return false;
                 if (button == Input.Buttons.RIGHT) { cancelRoute(); return true; }
                 worldPressed = button == Input.Buttons.LEFT;
                 pressX = x; pressY = y;
@@ -123,7 +151,7 @@ public final class DungeonScreen extends AbstractGameScreen {
                 if (pointer != 0 || button != Input.Buttons.LEFT) return false;
                 boolean clicked = worldPressed && Math.abs(x - pressX) <= 6 && Math.abs(y - pressY) <= 6;
                 worldPressed = false;
-                if (clicked && !pauseVisible && !inventoryVisible
+                if (clicked && !uiLocked()
                         && MouseUi.containsScreen(worldViewport, x, y, Gdx.graphics.getHeight())) {
                     worldViewport.unproject(worldPointer.set(x, y));
                     requestRoute(pointerGoal(worldPointer.x, worldPointer.y));
@@ -131,34 +159,51 @@ public final class DungeonScreen extends AbstractGameScreen {
                 return true;
             }
         });
-        useMouse(uiViewport).modal(() -> pauseVisible || inventoryVisible);
+        useMouse(uiViewport).modal(this::uiLocked);
         mouseUi.worldHand(() -> !worldHint().isEmpty());
         mouseUi.add("Inventory [I]", 22, 18, 165, 44, () -> { cancelRoute(); inventoryVisible = true; })
-                .when(() -> !pauseVisible && !inventoryVisible);
+                .when(() -> !uiLocked());
         mouseUi.add("Use Potion [P]", 197, 18, 175, 44, this::drinkPotion)
-                .when(() -> !pauseVisible && !inventoryVisible).disabled(this::potionReason);
+                .when(() -> !uiLocked()).disabled(this::potionReason);
         mouseUi.add("Pause [Esc]", 382, 18, 160, 44, () -> { cancelRoute(); pauseVisible = true; pauseSelection = 0; })
-                .when(() -> !pauseVisible && !inventoryVisible);
+                .when(() -> !uiLocked());
         mouseUi.add("Descend [E]", 552, 18, 160, 44, this::useCurrentTile)
-                .when(() -> !pauseVisible && !inventoryVisible && session.isAtExit());
+                .when(() -> !uiLocked() && session.isAtExit());
         mouseUi.add("Use Potion", 420, 160, 210, 44, this::drinkPotion).when(() -> inventoryVisible && !pauseVisible)
                 .disabled(this::potionReason);
         mouseUi.add("Close", 650, 160, 210, 44, () -> inventoryVisible = false).when(() -> inventoryVisible && !pauseVisible);
-        for (int i = 0; i < PAUSE_OPTIONS.length; i++) {
+        for (int i = 0; i < pauseOptions.length; i++) {
             final int index = i;
-            mouseUi.add(PAUSE_OPTIONS[i], 500, 375 - i * 60, 280, 44, () -> { pauseSelection = index; activatePause(); })
+            mouseUi.add(pauseOptions[i], 500, 375 - i * 60, 280, 44, () -> { pauseSelection = index; activatePause(); })
                     .when(() -> pauseVisible).hover(() -> pauseSelection = index).selected(() -> pauseSelection == index);
         }
         // HUD panels must not send movement clicks into the world below them.
         mouseUi.add("", 20, 575, 390, 125, () -> {}).block()
-                .when(() -> !pauseVisible && !inventoryVisible);
+                .when(() -> !uiLocked());
         mouseUi.add("", 930, 620, 330, 80, () -> {}).block()
-                .when(() -> !pauseVisible && !inventoryVisible);
+                .when(() -> !uiLocked());
+        // Race Mode only: a mouse-reachable way to leave once exploration
+        // has ended and this screen is fully frozen waiting on the other
+        // player (Esc already does the same thing -- see keyDown above).
+        mouseUi.add("Abandon Race", 540, 275, 200, 44, game::abandonRace).when(this::isWaitingForOpponent);
     }
 
     private String potionReason() { return ActionAvailability.reason(session.hero, BattleAction.POTION); }
 
+    /** True whenever normal exploration input (movement, HUD buttons, world clicks) should be suppressed. */
+    private boolean uiLocked() { return pauseVisible || inventoryVisible || isWaitingForOpponent(); }
+
+    private boolean isWaitingForOpponent() { return raceMode && game.isRaceWaitingForOpponent(); }
+
     private void activatePause() {
+        if (raceMode) {
+            if (pauseSelection == 0) {
+                pauseVisible = false;
+            } else if (pauseSelection == 1) {
+                game.abandonRace();
+            }
+            return;
+        }
         switch (pauseSelection) {
             case 0 -> pauseVisible = false;
             case 1 -> { game.saveGame(); setNotice("Game saved."); pauseVisible = false; }
@@ -190,7 +235,7 @@ public final class DungeonScreen extends AbstractGameScreen {
     }
 
     private void updateRoute(float delta) {
-        if (pauseVisible || inventoryVisible || route.isEmpty()) return;
+        if (uiLocked() || route.isEmpty()) return;
         routeTimer -= delta;
         if (routeTimer > 0) return;
         GridPoint next = route.removeFirst();
@@ -216,7 +261,7 @@ public final class DungeonScreen extends AbstractGameScreen {
     }
 
     private String worldHint() {
-        if (pauseVisible || inventoryVisible || !MouseUi.containsScreen(worldViewport, Gdx.input.getX(), Gdx.input.getY(), Gdx.graphics.getHeight())) return "";
+        if (uiLocked() || !MouseUi.containsScreen(worldViewport, Gdx.input.getX(), Gdx.input.getY(), Gdx.graphics.getHeight())) return "";
         worldViewport.unproject(worldPointer.set(Gdx.input.getX(), Gdx.input.getY()));
         GridPoint target = pointerGoal(worldPointer.x, worldPointer.y);
         int x = target.x(), y = target.y();
@@ -238,11 +283,11 @@ public final class DungeonScreen extends AbstractGameScreen {
             return true;
         }
         if (keycode == Input.Keys.UP || keycode == Input.Keys.W) {
-            pauseSelection = Math.floorMod(pauseSelection - 1, PAUSE_OPTIONS.length);
+            pauseSelection = Math.floorMod(pauseSelection - 1, pauseOptions.length);
             return true;
         }
         if (keycode == Input.Keys.DOWN || keycode == Input.Keys.S) {
-            pauseSelection = (pauseSelection + 1) % PAUSE_OPTIONS.length;
+            pauseSelection = (pauseSelection + 1) % pauseOptions.length;
             return true;
         }
         if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
@@ -269,7 +314,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (session.hero.usePotion()) {
             game.sounds().schedule(this, SoundCue.HEAL, .07f);
             setNotice("Potion restores " + (session.hero.health - before) + " HP.");
-            game.saveGame();
+            if (!raceMode) game.saveGame();
         } else if (session.hero.potions <= 0) {
             setNotice("No potions remain.");
         } else {
@@ -285,8 +330,17 @@ public final class DungeonScreen extends AbstractGameScreen {
         cancelRoute();
         int healthBefore = session.hero.health, manaBefore = session.hero.mana;
         session.beginNextFloor();
-        game.saveGame();
-        game.showDungeon();
+        if (raceMode) {
+            // Race Mode has no per-screen "next floor" navigation of its own
+            // yet -- the exploration phase stays on this same DungeonScreen
+            // instance for its whole duration, so just continue in place
+            // rather than calling game.showDungeon() (which would rebuild a
+            // *classic* single-player DungeonScreen and drop race context).
+            setNotice("Stairs descended. Floor " + session.floorNumber + ".");
+        } else {
+            game.saveGame();
+            game.showDungeon();
+        }
         if (session.hero.health > healthBefore) game.sounds().play(SoundCue.HEAL);
         if (session.hero.mana > manaBefore) game.sounds().schedule(game.getScreen(), SoundCue.POWER_UP, .18f);
     }
@@ -314,10 +368,10 @@ public final class DungeonScreen extends AbstractGameScreen {
             game.sounds().play(SoundCue.CHEST);
             if (session.hero.mana > manaBefore) game.sounds().schedule(this, SoundCue.POWER_UP, .32f);
             setNotice(String.join("\n", loot));
-            game.saveGame();
+            if (!raceMode) game.saveGame();
         } else if (session.isAtExit()) {
             setNotice("Stairs found. Click Descend or press E / Enter.");
-        } else if (session.stepsTaken % 25 == 0) {
+        } else if (!raceMode && session.stepsTaken % 25 == 0) {
             game.saveGame();
         }
     }
@@ -352,7 +406,7 @@ public final class DungeonScreen extends AbstractGameScreen {
     }
 
     private void updateHeldMovement(float delta) {
-        if (pauseVisible || inventoryVisible) {
+        if (uiLocked()) {
             return;
         }
         moveRepeatTimer -= delta;
@@ -404,11 +458,17 @@ public final class DungeonScreen extends AbstractGameScreen {
         drawDungeon();
         drawRoute();
         drawHud();
+        if (raceMode) {
+            drawRaceTimer();
+        }
         if (inventoryVisible) {
             drawInventory();
         }
         if (pauseVisible) {
             drawPauseMenu();
+        }
+        if (isWaitingForOpponent()) {
+            drawWaitingOverlay();
         }
         drawMouse();
     }
@@ -611,6 +671,62 @@ public final class DungeonScreen extends AbstractGameScreen {
                 640f, 223f, Palette.MUTED);
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    /** Reused every frame by drawRaceTimer() to avoid allocating a Color object per frame just to flash the low-time warning. */
+    private final Color raceTimerColor = new Color();
+
+    private void drawRaceTimer() {
+        float remaining = Math.max(0f, game.raceSecondsRemaining());
+        float duration = Math.max(1, game.raceDurationSeconds());
+        float ratio = MathUtils.clamp(remaining / duration, 0f, 1f);
+
+        ShapeRenderer shapes = game.shapes();
+        shapes.setProjectionMatrix(uiCamera.combined);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        UiRenderer.panel(shapes, 440f, 648f, 400f, 52f, Palette.PANEL);
+        Color barColor = ratio > .5f ? Palette.BLUE : ratio > .2f ? Palette.GOLD : Palette.DANGER;
+        UiRenderer.bar(shapes, 456f, 656f, 368f, 14f, Math.round(remaining * 10f), Math.round(duration * 10f), barColor);
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+
+        raceTimerColor.set(Palette.TEXT);
+        if (remaining <= 10f) {
+            float pulse = (MathUtils.sin(worldAnimationTime * 10f) + 1f) / 2f;
+            raceTimerColor.lerp(Palette.DANGER, pulse);
+        }
+        game.batch().setProjectionMatrix(uiCamera.combined);
+        game.batch().begin();
+        UiRenderer.centeredText(game.batch(), game.mediumFont(), "EXPLORE - " + formatClock(remaining), 640f, 691f, raceTimerColor);
+        game.batch().end();
+    }
+
+    private void drawWaitingOverlay() {
+        ShapeRenderer shapes = game.shapes();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.72f);
+        shapes.rect(0f, 0f, UiRenderer.WIDTH, UiRenderer.HEIGHT);
+        UiRenderer.panel(shapes, 390f, 245f, 500f, 235f, Palette.PANEL_LIGHT);
+        shapes.setColor(Palette.ACCENT);
+        shapes.rect(390f, 460f, 500f, 8f);
+        shapes.end();
+
+        game.batch().begin();
+        UiRenderer.centeredText(game.batch(), game.titleFont(), "EXPLORATION COMPLETE", 640f, 425f, Palette.TEXT);
+        int dots = 1 + (int) (worldAnimationTime * 2f) % 3;
+        UiRenderer.centeredText(game.batch(), game.mediumFont(), "Waiting for opponent" + ".".repeat(dots),
+                640f, 368f, Palette.MUTED);
+        UiRenderer.centeredText(game.batch(), game.font(), "Esc or Abandon Race: leave the match", 640f, 295f, Palette.MUTED);
+        game.batch().end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    private static String formatClock(float seconds) {
+        int total = Math.max(0, Math.round(seconds));
+        return String.format("%d:%02d", total / 60, total % 60);
     }
 
     private void drawPauseMenu() {

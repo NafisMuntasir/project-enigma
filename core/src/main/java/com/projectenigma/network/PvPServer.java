@@ -48,6 +48,15 @@ public final class PvPServer implements AutoCloseable {
         void onClassSelected(HeroClass guestClass);
         void onActionReceived(BattleAction action);
         void onAbandon();
+
+        /**
+         * Race-to-PvP only: the guest's exploration-phase hero, sent once
+         * its exploration timer ends. Default no-op so existing listeners
+         * (e.g. classic PvP's lobby listener, {@code PvPCombatScreen})
+         * that have nothing to do with Race mode don't need to implement
+         * it.
+         */
+        default void onReadyForPvp(HeroLoadout loadout) { }
     }
 
     private static final EventListener NO_OP = new EventListener() {
@@ -133,6 +142,8 @@ public final class PvPServer implements AutoCloseable {
             enqueue(() -> listener.onActionReceived(packet.action()));
         } else if (payload instanceof PvPAbandonPacket) {
             enqueue(() -> listener.onAbandon());
+        } else if (payload instanceof ReadyForPvPPacket packet) {
+            enqueue(() -> listener.onReadyForPvp(packet.loadout()));
         }
         // Anything else (a stray/unexpected type) is silently ignored.
     }
@@ -155,14 +166,26 @@ public final class PvPServer implements AutoCloseable {
     }
 
     public void broadcast(PvPBattleState state) {
+        sendToGuest(state);
+    }
+
+    /**
+     * Generic one-shot send to the current guest, used both by {@link
+     * #broadcast} and by the Race-to-PvP lifecycle packets ({@link
+     * RaceStartPacket}, {@link RaceTimerSyncPacket}) which have no
+     * per-turn shape of their own. Silently does nothing if there is no
+     * live guest connection -- callers here are always fire-and-forget
+     * status updates, not commands that need a delivery guarantee.
+     */
+    public void sendToGuest(Object payload) {
         PvPConnection connection = guestConnection;
         if (connection == null) {
             return;
         }
         try {
-            connection.send(state);
+            connection.send(payload);
         } catch (IOException exception) {
-            MainThreadGateway.log("PvPServer", "Broadcast failed: " + exception.getMessage());
+            MainThreadGateway.log("PvPServer", "Send failed: " + exception.getMessage());
         }
     }
 
