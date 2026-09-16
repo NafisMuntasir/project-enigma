@@ -126,7 +126,8 @@ class MouseIntegrationTest {
         worldClick(screen, 34, 20); worldClick(screen, 39, 20); assertTrue(route(screen).isEmpty()); // Unknown terrain.
         worldClick(screen, 34, 20); click(90, 40); assertTrue(route(screen).isEmpty());
         worldClick(screen, 34, 20); assertTrue(route(screen).isEmpty()); // Inventory captures world clicks.
-        click(750, 180); assertEquals(30, game.session().playerX);
+        click(840, 180); assertEquals(30, game.session().playerX);
+        assertFalse((boolean)get(screen, "inventoryVisible"));
     }
     @Test void chestStairsAndDeliberateEnemyEncounterUseExistingGameRules() throws Exception {
         DungeonScreen screen = dungeon(); GameSession session = game.session();
@@ -179,7 +180,7 @@ class MouseIntegrationTest {
         assertEquals("192.168.1.15", get(game.getScreen(), "ipInput").toString());
         clipboard = "not an address"; click(490, 250);
         assertEquals("192.168.1.15", get(game.getScreen(), "ipInput").toString());
-        click(780, 250); click(640, 290); assertInstanceOf(MenuScreen.class, game.getScreen());
+        click(780, 250); click(640, 225); assertInstanceOf(MenuScreen.class, game.getScreen());
     }
     @Test void bothMouseControlledPvpScreensFinishMatchOverSocketsAfterReconnect() throws Exception {
         ProjectEnigmaGame guestGame = new ProjectEnigmaGame();
@@ -292,10 +293,15 @@ class MouseIntegrationTest {
         assertEquals(1, playedSounds.stream().filter(c -> c == SoundCue.CHEST).count());
         worldClick(screen, 30, 20); tick(screen); worldClick(screen, 31, 20); tick(screen);
         assertEquals(1, playedSounds.stream().filter(c -> c == SoundCue.CHEST).count());
-        session.hero.health -= 20; click(270, 40); advanceAudio(.1f);
+        session.hero.health -= 20;
+        click(90, 40); // Items now contains Med Gels; Equipment occupies the former potion button.
+        click(670, 180); advanceAudio(.1f);
         assertEquals(1, playedSounds.stream().filter(c -> c == SoundCue.HEAL).count());
-        click(270, 40); advanceAudio(.1f);
+        int remaining = session.hero.inventory.get(0).quantity;
+        click(670, 180); advanceAudio(.1f);
         assertEquals(1, playedSounds.stream().filter(c -> c == SoundCue.HEAL).count());
+        assertEquals(remaining, session.hero.inventory.get(0).quantity); // Full health cannot consume another gel.
+        click(840, 180);
         session.hero.experience = 44; session.hero.attack = 999; session.hero.health -= 20;
         game.startCombat(new DungeonEnemy(2, EnemyType.CAVE_SLIME, 32, 20, 1));
         click(100, 130); advanceAudio(1.2f);
@@ -310,6 +316,7 @@ class MouseIntegrationTest {
 
     private DungeonScreen dungeon() throws Exception {
         GameSession session = new GameSession(); session.playerX = 30; session.playerY = 20;
+        session.hero.migrateLegacyPotionsToItems(); // Match new-run/save-load initialization for this hand-built map.
         DungeonMap map = new DungeonMap(61, 41);
         for (int x = 20; x <= 40; x++) for (int y = 12; y <= 28; y++) map.carve(x, y);
         map.setStart(new GridPoint(30, 20)); map.setExit(new GridPoint(32, 20));
