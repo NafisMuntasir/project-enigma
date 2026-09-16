@@ -365,10 +365,10 @@ public final class CombatScreen extends AbstractGameScreen {
         game.batch().setProjectionMatrix(camera.combined);
         game.batch().setColor(1f, 1f, 1f, 1f);
         game.batch().begin();
-        game.batch().draw(game.assets().battleHeroFrame(session.hero.heroClass, heroPose, heroFrameTime, false),
-                184f, 205f, 192f, 288f);
-        game.batch().draw(game.assets().battleEnemyFrame(enemy.type, enemyPose, enemyFrameTime, true),
-                869f, 205f, 192f, 288f);
+        game.assets().drawBattleHero(game.batch(), session.hero.heroClass, heroPose, heroFrameTime, false,
+                280f, 205f, 288f);
+        game.assets().drawBattleEnemy(game.batch(), enemy.type, enemyPose, enemyFrameTime, true,
+                965f, 205f, 288f);
         game.batch().end();
 
         ShapeRenderer shapes = game.shapes();

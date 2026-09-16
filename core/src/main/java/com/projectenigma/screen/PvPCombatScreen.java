@@ -390,10 +390,10 @@ public final class PvPCombatScreen extends AbstractGameScreen
         game.batch().setProjectionMatrix(camera.combined);
         game.batch().setColor(1f, 1f, 1f, 1f);
         game.batch().begin();
-        game.batch().draw(game.assets().battleHeroFrame(me.heroClass(), myPose, myFrameTime, false),
-                184f, 205f, 192f, 288f);
-        game.batch().draw(game.assets().battleHeroFrame(opponent.heroClass(), opponentPose, opponentFrameTime, true),
-                904f, 205f, 192f, 288f);
+        game.assets().drawBattleHero(game.batch(), me.heroClass(), myPose, myFrameTime, false,
+                280f, 205f, 288f);
+        game.assets().drawBattleHero(game.batch(), opponent.heroClass(), opponentPose, opponentFrameTime, true,
+                1000f, 205f, 288f);
         game.batch().end();
 
         ShapeRenderer shapes = game.shapes();

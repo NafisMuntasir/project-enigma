@@ -1,6 +1,10 @@
 {
   "pack": "Utopia Pixel Asset Pack",
   "version": "1.2.0",
+  "playableCharacterStatus": "Legacy sheets retained; active playable artwork is in ../operatives/",
+  "runtimePlayableAssets": "../operatives/manifest.json",
+  "runtimeEnemyAssets": "../adversaries/manifest.json",
+  "runtimeChestAssets": "../props/chest/README.md",
   "palette": {
     "white": "#F6F4EC",
     "off_white": "#DEDDD4",

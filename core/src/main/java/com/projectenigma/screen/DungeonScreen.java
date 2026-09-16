@@ -69,6 +69,7 @@ public final class DungeonScreen extends AbstractGameScreen {
     private String notice = "";
     private float noticeTime;
     private float worldAnimationTime;
+    private final java.util.Map<DungeonChest, Float> chestOpenedAt = new java.util.IdentityHashMap<>();
     private UtopiaAssets.Direction facing = UtopiaAssets.Direction.DOWN;
 
     public DungeonScreen(ProjectEnigmaGame game, GameSession session) {
@@ -470,6 +471,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (chest != null && !chest.opened) {
             int manaBefore = session.hero.mana;
             List<String> loot = session.openChest(chest);
+            chestOpenedAt.put(chest, worldAnimationTime);
             game.sounds().play(SoundCue.CHEST);
             if (session.hero.mana > manaBefore) game.sounds().schedule(this, SoundCue.POWER_UP, .32f);
             setNotice(String.join("\n", loot));
@@ -715,7 +717,9 @@ public final class DungeonScreen extends AbstractGameScreen {
             if (!isVisible(chest.x, chest.y)) {
                 game.batch().setColor(0.30f, 0.35f, 0.40f, 1f);
             }
-            game.batch().draw(game.assets().chestTile(chest.opened), chest.x, chest.y, 1f, 1f);
+            Float openedAt = chestOpenedAt.get(chest);
+            float elapsed = openedAt == null ? Float.POSITIVE_INFINITY : worldAnimationTime - openedAt;
+            game.batch().draw(game.assets().chestFrame(chest.opened, elapsed), chest.x, chest.y, 1f, 1.5f);
             game.batch().setColor(1f, 1f, 1f, 1f);
         }
     }
@@ -725,16 +729,16 @@ public final class DungeonScreen extends AbstractGameScreen {
             if (!enemy.isAlive() || !isVisible(enemy.x, enemy.y)) {
                 continue;
             }
-            game.batch().draw(game.assets().worldEnemyFrame(enemy.type, worldAnimationTime),
-                    enemy.x, enemy.y, 1f, 1.5f);
+            game.assets().drawWorldEnemy(game.batch(), enemy.type, UtopiaAssets.Direction.DOWN, worldAnimationTime,
+                    enemy.x + .5f, enemy.y, 1.5f);
         }
     }
 
     private void drawPlayer() {
         boolean moving = Math.abs(renderedPlayerX - (session.playerX + 0.5f)) > 0.015f
                 || Math.abs(renderedPlayerY - (session.playerY + 0.5f)) > 0.015f;
-        game.batch().draw(game.assets().worldHeroFrame(session.hero.heroClass, facing, moving, worldAnimationTime),
-                renderedPlayerX - 0.5f, renderedPlayerY - 0.5f, 1f, 1.5f);
+        game.assets().drawWorldHero(game.batch(), session.hero.heroClass, facing, moving, worldAnimationTime,
+                renderedPlayerX, renderedPlayerY - 0.5f, 1.5f);
     }
 
     private void drawHud() {

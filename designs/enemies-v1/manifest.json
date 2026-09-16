@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "generator": "Built-in imagegen",
+  "runtimeLoader": "KeyedSpriteAtlas",
+  "filter": "nearest",
+  "alphaCutoff": 128,
+  "world": {
+    "columns": 4,
+    "rows": 4,
+    "frameWidth": 96,
+    "frameHeight": 96,
+    "directions": [
+      "down",
+      "left",
+      "right",
+      "up"
+    ],
+    "secondsPerFrame": 0.13
+  },
+  "battle": {
+    "columns": 6,
+    "rows": 4,
+    "frameWidth": 256,
+    "frameHeight": 192,
+    "rowsByAnimation": [
+      "idle",
+      "attack",
+      "hurt",
+      "defeat"
+    ],
+    "activeFrames": [
+      4,
+      6,
+      3,
+      6
+    ],
+    "secondsPerFrame": [
+      0.12,
+      0.12,
+      0.12,
+      0.16
+    ]
+  },
+  "enemies": [
+    {
+      "saveId": "CAVE_SLIME",
+      "id": "recon-drone",
+      "worldHeight": 34,
+      "battleHeight": 72
+    },
+    {
+      "saveId": "BONE_SENTINEL",
+      "id": "aegis-robot",
+      "worldHeight": 73,
+      "battleHeight": 145
+    },
+    {
+      "saveId": "ABYSS_MAGE",
+      "id": "helix-cyborg",
+      "worldHeight": 70,
+      "battleHeight": 141
+    },
+    {
+      "saveId": "FLOOR_WARDEN",
+      "id": "enhanced-warden",
+      "worldHeight": 78,
+      "battleHeight": 150
+    }
+  ],
+  "chest": {
+    "source": "assets/props/chest/opening-keyed.png",
+    "columns": 2,
+    "rows": 2,
+    "frameWidth": 64,
+    "frameHeight": 96,
+    "frames": [
+      "closed",
+      "unlatch",
+      "opening",
+      "open"
+    ],
+    "secondsPerFrame": 0.12,
+    "closedHeight": 32
+  }
+}

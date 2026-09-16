@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "generation": "built-in image_gen",
+  "key": "#ff00ff",
+  "filter": "Nearest",
+  "world": {
+    "file": "world-keyed.png",
+    "columns": 6,
+    "rows": [
+      "down",
+      "left",
+      "right",
+      "up"
+    ],
+    "decodedFrame": [
+      64,
+      96
+    ],
+    "idle": [
+      0,
+      1
+    ],
+    "walk": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "secondsPerFrame": 0.13,
+    "targetIdleHeight": 70,
+    "displayScale": 1.3
+  },
+  "battle": {
+    "file": "battle-keyed.png",
+    "columns": 8,
+    "decodedFrame": [
+      256,
+      192
+    ],
+    "targetIdleHeight": 141,
+    "displayScale": 1.12,
+    "rows": [
+      {
+        "row": 0,
+        "name": "idle",
+        "frames": 4,
+        "secondsPerFrame": 0.12
+      },
+      {
+        "row": 1,
+        "name": "attack",
+        "frames": 6,
+        "secondsPerFrame": 0.12
+      },
+      {
+        "row": 2,
+        "name": "skill",
+        "frames": 8,
+        "secondsPerFrame": 0.12
+      },
+      {
+        "row": 3,
+        "name": "guard",
+        "frames": 4,
+        "secondsPerFrame": 0.12
+      },
+      {
+        "row": 4,
+        "name": "hurt",
+        "frames": 3,
+        "secondsPerFrame": 0.12
+      },
+      {
+        "row": 5,
+        "name": "defeat",
+        "frames": 6,
+        "secondsPerFrame": 0.16
+      }
+    ],
+    "mirroredOpponent": true
+  },
+  "roles": {
+    "WARRIOR": "sentinel",
+    "MAGE": "hacker",
+    "THIEF": "sniper",
+    "GRAPPLER": "enforcer",
+    "CLERIC": "bio-medic"
+  },
+  "calibration": "Sentinel preserves the approved fixed source scales (world .29, battle 1.0). Other roles match its decoded idle heights; world directions calibrate separately. Foot inset: 4 pixels."
+}

@@ -10,9 +10,15 @@
 | `FLOOR_WARDEN` | Enhanced Warden | Enhanced human | Visible skin and face, implants, heavy armor, red energy blade |
 
 The generated concept board is stored at
-`assets/utopia/concepts/sci_fi_enemy_lineup_reference.png`. The engine-ready
-pixel sheets were then constructed on exact transparent grids by
-`tools/generate_sci_fi_enemies.py`.
+`assets/utopia/concepts/sci_fi_enemy_lineup_reference.png`. The active animation
+sheets are now custom imagegen artwork under `assets/adversaries/`, styled to
+match the upgraded operatives. See `assets/adversaries/README.md` for layouts,
+scale, import behavior and the full animation prompt set. The older sheets made
+by `tools/generate_sci_fi_enemies.py` are retained as legacy assets.
+
+The chest has matching generated closed/opening/open states in
+`assets/props/chest/`. Run `PREVIEW_ENEMIES_WINDOWS.bat` to inspect the complete
+enemy roster and the chest without creating a saved run.
 
 ## Final image-generation prompt
 

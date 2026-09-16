@@ -152,8 +152,8 @@ public final class ClassSelectScreen extends AbstractGameScreen {
             game.batch().setColor(i == selected ? 1f : 0.72f,
                     i == selected ? 1f : 0.76f,
                     i == selected ? 1f : 0.80f, 1f);
-            game.batch().draw(game.assets().battleHeroFrame(heroClass, UtopiaAssets.BattlePose.IDLE, time, false),
-                    centerX - 64f, 356f, 128f, 192f);
+            game.assets().drawBattleHero(game.batch(), heroClass, UtopiaAssets.BattlePose.IDLE, time, false,
+                    centerX, 356f, 192f);
             game.batch().setColor(1f, 1f, 1f, 1f);
             UiRenderer.centeredText(game.batch(), game.mediumFont(), heroClass.displayName(), centerX, 335f, Palette.TEXT);
             UiRenderer.centeredText(game.batch(), game.font(), heroClass.description(), centerX, 302f, Palette.MUTED);

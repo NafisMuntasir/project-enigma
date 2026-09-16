@@ -11,3 +11,10 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testRuntimeOnly "com.badlogicgames.gdx:gdx-platform:${providers.gradleProperty('gdxVersion').get()}:natives-desktop"
 }
+
+tasks.named('test') {
+    // The sprite checks read the shipped PNGs; replacing artwork must invalidate cached results.
+    inputs.files(rootProject.fileTree('assets/operatives') { include '**/*-keyed.png' })
+    inputs.files(rootProject.fileTree('assets/adversaries') { include '**/*-keyed.png' })
+    inputs.files(rootProject.fileTree('assets/props/chest') { include '**/*-keyed.png' })
+}

@@ -34,6 +34,34 @@ See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art p
 - Matching 1280x720 rooftop menu and atrium battle backgrounds
 - Pure Java model tests for dungeon connectivity, placement, and combat rules
 
+## Custom operative animations
+
+All five playable roles use custom sprite sheets based on the approved character
+previews: Sentinel, Hacker, Sniper, Enforcer, and Bio-Medic. Each has four-direction
+idle/walk animation and six battle animations (idle, attack, skill, guard, hurt,
+defeat). Their visible idle heights match the approved enlarged Sentinel; body
+proportions, equipment and accent colours remain distinct.
+
+Run `PREVIEW_OPERATIVES_WINDOWS.bat`, or
+`./gradlew lwjgl3:run --args="--sprite-preview"`, to switch between roles, view both
+battle facings, pause, step through frames, and check light/dark backgrounds.
+This viewer does not create or save a run. The original Sentinel preview launcher
+also opens this viewer.
+
+See [the operative asset guide](assets/operatives/README.md) for frame layouts,
+size calibration, transparent exports and the generation prompt set.
+
+## Enemy and chest artwork
+
+Recon Drone, Aegis Robot, Helix Cyborg and Enhanced Warden now use custom world
+and battle animation sheets matched to the operatives. The supply chest has a
+four-frame opening animation and a persistent open appearance after looting.
+
+Run `PREVIEW_ENEMIES_WINDOWS.bat`, or
+`./gradlew lwjgl3:run --args="--enemy-preview"`, to inspect enemies beside Sentinel
+and view the chest states. See [the enemy asset guide](assets/adversaries/README.md)
+and [chest guide](assets/props/chest/README.md) for details.
+
 ## Requirements
 
 - JDK 17 or newer

@@ -26,6 +26,8 @@ import com.projectenigma.screen.GameOverScreen;
 import com.projectenigma.screen.MenuScreen;
 import com.projectenigma.screen.MultiplayerMenuScreen;
 import com.projectenigma.screen.PvPCombatScreen;
+import com.projectenigma.screen.SpritePreviewScreen;
+import com.projectenigma.screen.EnemyPreviewScreen;
 
 import java.io.IOException;
 
@@ -124,6 +126,14 @@ public final class ProjectEnigmaGame extends Game {
 
     private void applyLaunchArgs() {
         for (int i = 0; i < launchArgs.length; i++) {
+            if ("--enemy-preview".equals(launchArgs[i])) {
+                switchScreen(new EnemyPreviewScreen(this));
+                return;
+            }
+            if ("--sprite-preview".equals(launchArgs[i])) {
+                switchScreen(new SpritePreviewScreen(this));
+                return;
+            }
             if ("--host".equals(launchArgs[i])) {
                 switchScreen(MultiplayerMenuScreen.autoHost(this));
                 return;
@@ -137,6 +147,10 @@ public final class ProjectEnigmaGame extends Game {
 
     public void showMenu() {
         switchScreen(new MenuScreen(this));
+    }
+
+    public void showOperativePreview() {
+        switchScreen(new SpritePreviewScreen(this));
     }
 
     public void showClassSelect() {

@@ -3,6 +3,10 @@ package com.projectenigma;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.projectenigma.graphics.KeyedSpriteAtlas;
+import com.projectenigma.graphics.EnemyArt;
 import com.badlogic.gdx.graphics.Texture.TextureFilter;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.projectenigma.model.EnemyType;
@@ -11,7 +15,6 @@ import com.projectenigma.model.HeroClass;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Owns every texture used by the utopian pixel-art presentation layer.
@@ -69,6 +72,7 @@ public final class UtopiaAssets {
     private final Texture menuBackground;
     private final Texture battleBackground;
     private final TextureRegion[][] tiles;
+    private final TextureRegion[][] chestFrames;
 
     public UtopiaAssets() {
         menuBackground = loadTexture(ROOT + "backgrounds/menu_rooftop_1280x720.png");
@@ -77,31 +81,44 @@ public final class UtopiaAssets {
         Texture tileTexture = loadTexture(ROOT + "tiles/utopia_tileset_64.png");
         tiles = TextureRegion.split(tileTexture, TILE_SIZE, TILE_SIZE);
         requireGrid(tiles, 8, 8, "utopia tileset");
+        Texture chestTexture = loadKeyedTexture("assets/props/chest/opening-keyed.png", EnemyArt.CHEST,
+                EnemyArt.CHEST_CLOSED_HEIGHT, false);
+        chestFrames = TextureRegion.split(chestTexture, 64, 96);
+        requireGrid(chestFrames, 2, 2, "supply chest");
 
         for (HeroClass heroClass : HeroClass.values()) {
-            String id = heroClass.name().toLowerCase(Locale.ROOT);
-            Texture worldTexture = loadTexture(ROOT + "characters/topdown/" + id + "_topdown_64x96.png");
+            String id = operativeAssetId(heroClass);
+            String path = "assets/operatives/" + id + "/";
+            boolean sentinel = heroClass == HeroClass.WARRIOR;
+            Texture worldTexture = loadKeyedTexture(path + "world-keyed.png",
+                    sentinel ? KeyedSpriteAtlas.SENTINEL_WORLD : KeyedSpriteAtlas.OPERATIVE_WORLD,
+                    sentinel ? 0 : KeyedSpriteAtlas.WORLD_IDLE_HEIGHT, true);
             TextureRegion[][] world = TextureRegion.split(worldTexture, 64, 96);
             requireGrid(world, 4, 6, id + " top-down sheet");
             heroWorldFrames.put(heroClass, world);
 
-            Texture battleTexture = loadTexture(ROOT + "characters/battle/" + id + "_battle_128x192.png");
-            TextureRegion[][] battle = TextureRegion.split(battleTexture, 128, 192);
+            Texture battleTexture = loadKeyedTexture(path + "battle-keyed.png",
+                    sentinel ? KeyedSpriteAtlas.SENTINEL_BATTLE : KeyedSpriteAtlas.OPERATIVE_BATTLE,
+                    sentinel ? 0 : KeyedSpriteAtlas.BATTLE_IDLE_HEIGHT, false);
+            TextureRegion[][] battle = TextureRegion.split(battleTexture, 256, 192);
             requireGrid(battle, 6, 8, id + " battle sheet");
             heroBattleFrames.put(heroClass, battle);
             mirroredHeroBattleFrames.put(heroClass, mirroredCopy(battle));
         }
 
         for (EnemyType enemyType : EnemyType.values()) {
-            String id = enemyType.name().toLowerCase(Locale.ROOT);
-            Texture worldTexture = loadTexture(ROOT + "enemies/topdown/" + id + "_topdown_64x96.png");
-            TextureRegion[][] world = TextureRegion.split(worldTexture, 64, 96);
+            EnemyArt.Profile profile = EnemyArt.profile(enemyType);
+            String id = profile.id();
+            Texture worldTexture = loadKeyedTexture(profile.directory() + "world-keyed.png", EnemyArt.WORLD,
+                    profile.worldHeight(), true);
+            TextureRegion[][] world = TextureRegion.split(worldTexture, 96, 96);
             requireGrid(world, 4, 4, id + " top-down sheet");
             enemyWorldFrames.put(enemyType, world);
 
-            Texture battleTexture = loadTexture(ROOT + "enemies/battle/" + id + "_battle_128x192.png");
-            TextureRegion[][] battle = TextureRegion.split(battleTexture, 128, 192);
-            requireGrid(battle, 4, 8, id + " battle sheet");
+            Texture battleTexture = loadKeyedTexture(profile.directory() + "battle-keyed.png", EnemyArt.BATTLE,
+                    profile.battleHeight(), false);
+            TextureRegion[][] battle = TextureRegion.split(battleTexture, 256, 192);
+            requireGrid(battle, 4, 6, id + " battle sheet");
             enemyBattleFrames.put(enemyType, battle);
             mirroredEnemyBattleFrames.put(enemyType, mirroredCopy(battle));
         }
@@ -167,7 +184,12 @@ public final class UtopiaAssets {
     }
 
     public TextureRegion chestTile(boolean opened) {
-        return tile(opened ? 37 : 36);
+        return chestFrame(opened, Float.POSITIVE_INFINITY);
+    }
+
+    public TextureRegion chestFrame(boolean opened, float elapsed) {
+        int index = EnemyArt.chestFrame(opened, elapsed);
+        return chestFrames[index / 2][index % 2];
     }
 
     public TextureRegion worldHeroFrame(HeroClass heroClass, Direction direction,
@@ -176,7 +198,55 @@ public final class UtopiaAssets {
     }
 
     public TextureRegion worldEnemyFrame(EnemyType enemyType, float stateTime) {
-        return worldFrame(enemyWorldFrames.get(enemyType), Direction.DOWN, false, stateTime);
+        return worldEnemyFrame(enemyType, Direction.DOWN, stateTime);
+    }
+
+    public TextureRegion worldEnemyFrame(EnemyType enemyType, Direction direction, float stateTime) {
+        int frame = Math.max(0, (int) (stateTime / WORLD_FRAME_DURATION)) % 4;
+        return enemyWorldFrames.get(enemyType)[direction.row][frame];
+    }
+
+    public void drawWorldEnemy(SpriteBatch batch, EnemyType type, Direction direction, float stateTime,
+                               float centerX, float bottomY, float height) {
+        TextureRegion frame = worldEnemyFrame(type, direction, stateTime);
+        float scaledHeight = height * 1.30f;
+        float width = scaledHeight * frame.getRegionWidth() / frame.getRegionHeight();
+        float anchoredBottom = bottomY - (scaledHeight - height) * 4f / frame.getRegionHeight();
+        if (type == EnemyType.CAVE_SLIME) anchoredBottom += height * .12f;
+        batch.draw(frame, centerX - width / 2, anchoredBottom, width, scaledHeight);
+    }
+
+    public void drawBattleEnemy(SpriteBatch batch, EnemyType type, BattlePose pose, float stateTime,
+                                boolean mirrored, float centerX, float bottomY, float height) {
+        TextureRegion frame = battleEnemyFrame(type, pose, stateTime, mirrored);
+        float scaledHeight = height * 1.12f;
+        float width = scaledHeight * frame.getRegionWidth() / frame.getRegionHeight();
+        float anchoredBottom = bottomY - (scaledHeight - height) * 4f / frame.getRegionHeight();
+        if (type == EnemyType.CAVE_SLIME) {
+            float hovering = pose == BattlePose.DEFEAT ? Math.max(0, 1 - stateTime / .48f) : 1;
+            anchoredBottom += height * .17f * hovering;
+        }
+        batch.draw(frame, centerX - width / 2, anchoredBottom, width, scaledHeight);
+    }
+
+    public static String operativeAssetId(HeroClass heroClass) {
+        return switch (heroClass) {
+            case WARRIOR -> "sentinel";
+            case MAGE -> "hacker";
+            case THIEF -> "sniper";
+            case GRAPPLER -> "enforcer";
+            case CLERIC -> "bio-medic";
+        };
+    }
+
+    public void drawWorldHero(SpriteBatch batch, HeroClass heroClass, Direction direction, boolean moving,
+                              float stateTime, float centerX, float bottomY, float height) {
+        TextureRegion frame = worldHeroFrame(heroClass, direction, moving, stateTime);
+        float scaledHeight = height * 1.30f;
+        float width = scaledHeight * frame.getRegionWidth() / frame.getRegionHeight();
+        // Imported frames have four transparent pixels below the feet.
+        float anchoredBottom = bottomY - (scaledHeight - height) * 4f / frame.getRegionHeight();
+        batch.draw(frame, centerX - width / 2f, anchoredBottom, width, scaledHeight);
     }
 
     public TextureRegion battleHeroFrame(HeroClass heroClass, BattlePose pose,
@@ -185,6 +255,38 @@ public final class UtopiaAssets {
                 ? mirroredHeroBattleFrames.get(heroClass)
                 : heroBattleFrames.get(heroClass);
         return battleFrame(frames, pose, stateTime);
+    }
+
+    /** Preserve frame aspect ratio and the approved Sentinel scale for every operative. */
+    public void drawBattleHero(SpriteBatch batch, HeroClass heroClass, BattlePose pose, float stateTime,
+                               boolean mirrored, float centerX, float bottomY, float height) {
+        TextureRegion frame = battleHeroFrame(heroClass, pose, stateTime, mirrored);
+        float scaledHeight = height * 1.12f;
+        float width = scaledHeight * frame.getRegionWidth() / frame.getRegionHeight();
+        float anchoredBottom = bottomY - (scaledHeight - height) * 4f / frame.getRegionHeight();
+        batch.draw(frame, centerX - width / 2f, anchoredBottom, width, scaledHeight);
+    }
+
+    private Texture loadKeyedTexture(String path, KeyedSpriteAtlas.Layout layout, int idleHeight, boolean directional) {
+        Pixmap source = new Pixmap(Gdx.files.internal(path));
+        Pixmap atlas = null;
+        try {
+            int width = source.getWidth(), height = source.getHeight();
+            int[] rgba = new int[width * height];
+            for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) rgba[y * width + x] = source.getPixel(x, y);
+            int[] decoded = KeyedSpriteAtlas.decode(rgba, width, height, layout, idleHeight, directional);
+            atlas = new Pixmap(layout.width(), layout.height(), Pixmap.Format.RGBA8888);
+            atlas.setBlending(Pixmap.Blending.None);
+            for (int y = 0; y < layout.height(); y++) for (int x = 0; x < layout.width(); x++)
+                atlas.drawPixel(x, y, decoded[y * layout.width() + x]);
+            Texture texture = new Texture(atlas);
+            texture.setFilter(TextureFilter.Nearest, TextureFilter.Nearest);
+            ownedTextures.add(texture);
+            return texture;
+        } finally {
+            source.dispose();
+            if (atlas != null) atlas.dispose();
+        }
     }
 
     public TextureRegion battleEnemyFrame(EnemyType enemyType, BattlePose pose,
