@@ -16,6 +16,11 @@ public class Hero implements Combatant {
     public int potions = 3;
     public int gold = 0;
 
+    /** Picked-up consumables and spare equipment. Persisted with the run. */
+    public ArrayList<Item> inventory = new ArrayList<>();
+    public Item equippedWeapon;
+    public Item equippedArmor;
+
     /** Combat-only state. Never persisted -- a fresh guard should never survive a save/load. */
     public transient boolean guarding = false;
 
@@ -66,6 +71,28 @@ public class Hero implements Combatant {
             messages.add("Level up! You are now level " + level + ".");
         }
         return messages;
+    }
+
+    /**
+     * Migrates legacy single-player potion counts into the unified item inventory.
+     * Kept separate from the PvP potion API so old saves remain readable.
+     */
+    public int migrateLegacyPotionsToItems() {
+        if (potions <= 0) return 0;
+        int count = potions;
+        addItem(Item.health("health_1", "Med Gel", BattleEngine.potionHealAmount()));
+        Item healthItem = null;
+        if (inventory != null) {
+            for (Item item : inventory) {
+                if (item != null && "health_1".equals(item.id)) {
+                    healthItem = item;
+                    break;
+                }
+            }
+        }
+        if (healthItem != null) healthItem.quantity += Math.max(0, count - 1);
+        potions = 0;
+        return count;
     }
 
     public boolean usePotion() {
@@ -120,12 +147,88 @@ public class Hero implements Combatant {
 
     @Override
     public int attack() {
-        return attack;
+        return attack + equipmentAttackBonus();
     }
 
     @Override
     public int defense() {
-        return defense;
+        return defense + equipmentDefenseBonus();
+    }
+
+    public int equipmentAttackBonus() {
+        return equippedWeapon == null ? 0 : equippedWeapon.attackBonus;
+    }
+
+    public int equipmentDefenseBonus() {
+        return equippedArmor == null ? 0 : equippedArmor.defenseBonus;
+    }
+
+    public void addItem(Item item) {
+        if (item == null) return;
+        if (inventory == null) inventory = new ArrayList<>();
+        if (item.stackable) {
+            for (Item existing : inventory) {
+                if (existing != null && existing.stackable && item.id != null && item.id.equals(existing.id)) {
+                    existing.quantity += Math.max(1, item.quantity);
+                    return;
+                }
+            }
+        }
+        inventory.add(item.copy());
+    }
+
+    public boolean canUseItem(Item item) {
+        if (item == null || !item.isConsumable() || item.quantity <= 0) return false;
+        if (item.type == Item.Type.HEALTH) return health < maxHealth;
+        return mana < maxMana;
+    }
+
+    public int useItem(Item item) {
+        if (!canUseItem(item)) return 0;
+        int restored = item.type == Item.Type.HEALTH ? heal(item.amount) : restoreMana(item.amount);
+        if (restored > 0) {
+            item.quantity--;
+            if (item.quantity <= 0 && inventory != null) inventory.remove(item);
+        }
+        return restored;
+    }
+
+    public void applyPermanentBoost(Item item) {
+        if (item == null) return;
+        if (item.type == Item.Type.MAX_HEALTH) {
+            maxHealth += Math.max(0, item.amount);
+            health = Math.min(maxHealth, health + Math.max(0, item.amount));
+        } else if (item.type == Item.Type.MAX_ENERGY) {
+            maxMana += Math.max(0, item.amount);
+            mana = Math.min(maxMana, mana + Math.max(0, item.amount));
+        }
+    }
+
+    public void equip(Item item) {
+        if (item == null || !item.isEquipment()) return;
+        if (inventory == null) inventory = new ArrayList<>();
+        Item previous = item.type == Item.Type.WEAPON ? equippedWeapon : equippedArmor;
+        if (previous != null) inventory.add(previous);
+        inventory.remove(item);
+        if (item.type == Item.Type.WEAPON) equippedWeapon = item;
+        else equippedArmor = item;
+    }
+
+    public void unequip(boolean weapon) {
+        Item equipped = weapon ? equippedWeapon : equippedArmor;
+        if (equipped == null) return;
+        if (inventory == null) inventory = new ArrayList<>();
+        inventory.add(equipped);
+        if (weapon) equippedWeapon = null;
+        else equippedArmor = null;
+    }
+
+    public String equippedWeaponName() {
+        return equippedWeapon == null ? "None" : equippedWeapon.name;
+    }
+
+    public String equippedArmorName() {
+        return equippedArmor == null ? "None" : equippedArmor.name;
     }
 
     @Override

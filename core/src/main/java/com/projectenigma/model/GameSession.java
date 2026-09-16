@@ -21,6 +21,7 @@ public class GameSession {
     public int stepsTaken;
     public ArrayList<DungeonEnemy> enemies = new ArrayList<>();
     public ArrayList<DungeonChest> chests = new ArrayList<>();
+    public ArrayList<DungeonPickup> pickups = new ArrayList<>();
 
     private transient DungeonMap dungeon;
 
@@ -31,6 +32,8 @@ public class GameSession {
     public GameSession(long campaignSeed, HeroClass heroClass) {
         this.campaignSeed = campaignSeed;
         this.hero = new Hero(heroClass);
+        // The single-player game uses the unified Items inventory.
+        this.hero.migrateLegacyPotionsToItems();
         beginFloor(1);
     }
 
@@ -55,6 +58,7 @@ public class GameSession {
         playerY = dungeon.start().y();
         enemies.clear();
         chests.clear();
+        pickups.clear();
         populateFloor();
     }
 
@@ -76,8 +80,14 @@ public class GameSession {
         if (chests == null) {
             chests = new ArrayList<>();
         }
+        if (pickups == null) {
+            pickups = new ArrayList<>();
+        }
         enemies.removeIf(enemy -> enemy == null || !dungeon.isWalkable(enemy.x, enemy.y));
         chests.removeIf(chest -> chest == null || !dungeon.isWalkable(chest.x, chest.y));
+        pickups.removeIf(pickup -> pickup == null || pickup.item == null || !dungeon.isWalkable(pickup.x, pickup.y));
+        // Old saves stored potions as a separate integer. Convert them once into Items.
+        hero.migrateLegacyPotionsToItems();
     }
 
     private void populateFloor() {
@@ -114,6 +124,43 @@ public class GameSession {
                 occupied.add(point);
             }
         }
+
+        int pickupTarget = Math.min(7, 3 + floorNumber / 2);
+        int pickupIndex = 0;
+        for (GridPoint point : candidates) {
+            if (pickups.size() >= pickupTarget) break;
+            if (!validSpawn(point, occupied, 5, 2)) continue;
+            pickups.add(new DungeonPickup(point.x(), point.y(), createPickupItem(random, pickupIndex)));
+            occupied.add(point);
+            pickupIndex++;
+        }
+    }
+
+    private Item createPickupItem(Random random, int index) {
+        int roll = random.nextInt(100);
+        int tier = Math.max(1, (floorNumber + 1) / 2);
+        if (roll < 38) {
+            return Item.health("health_" + tier, "Med Gel", 22 + tier * 5);
+        }
+        if (roll < 65) {
+            return Item.energy("energy_" + tier, "Aether Cell", 2 + tier);
+        }
+        if (roll < 77) {
+            return Item.maxHealth("vitality_" + tier + "_" + index, "Vitality Lattice", 10 + tier * 3);
+        }
+        if (roll < 88) {
+            return Item.maxEnergy("capacity_" + tier + "_" + index, "Core Capacitor", 1 + (tier >= 4 ? 1 : 0));
+        }
+        if (random.nextBoolean()) {
+            int bonus = 3 + tier * 2;
+            return Item.weapon("weapon_" + floorNumber + "_" + index,
+                    tier >= 3 ? "Helix Arc Rifle" : "Pulse Blade",
+                    "+" + bonus + " ATK", bonus);
+        }
+        int bonus = 2 + tier;
+        return Item.armor("armor_" + floorNumber + "_" + index,
+                tier >= 3 ? "Aegis Weave" : "Photon Mantle",
+                "+" + bonus + " DEF", bonus);
     }
 
     private boolean validSpawn(GridPoint point, Set<GridPoint> occupied, int distanceFromStart, int distanceFromExit) {
@@ -171,6 +218,33 @@ public class GameSession {
         return null;
     }
 
+    public DungeonPickup pickupAt(int x, int y) {
+        if (pickups == null) return null;
+        for (DungeonPickup pickup : pickups) {
+            if (!pickup.collected && pickup.x == x && pickup.y == y) return pickup;
+        }
+        return null;
+    }
+
+    public List<String> collectPickup(DungeonPickup pickup) {
+        if (pickup == null || pickup.collected || pickup.item == null) return List.of();
+        pickup.collected = true;
+        Item item = pickup.item;
+        List<String> result = new ArrayList<>();
+        if (item.type == Item.Type.MAX_HEALTH || item.type == Item.Type.MAX_ENERGY) {
+            hero.applyPermanentBoost(item);
+            result.add(item.name + " activated: " + item.description);
+        } else {
+            hero.addItem(item);
+            if (item.isEquipment()) {
+                result.add("Found " + item.name + " (" + item.description + "). Open Equipment to equip it.");
+            } else {
+                result.add("Found " + item.name + " x" + item.quantity + ". Use it from Items in combat.");
+            }
+        }
+        return result;
+    }
+
     public List<String> openChest(DungeonChest chest) {
         if (chest == null || chest.opened) {
             return List.of();
@@ -182,8 +256,8 @@ public class GameSession {
         List<String> result = new ArrayList<>();
         result.add("Chest opened: +" + goldFound + " gold.");
         if (lootRandom.nextInt(100) < 55) {
-            hero.potions++;
-            result.add("You also found a potion.");
+            hero.addItem(Item.health("health_1", "Med Gel", BattleEngine.potionHealAmount()));
+            result.add("You also found a Med Gel. It was added to Items.");
         }
         if (lootRandom.nextInt(100) < 35) {
             int restored = hero.restoreMana(3);
@@ -207,8 +281,8 @@ public class GameSession {
 
         Random lootRandom = new Random(defeated.id ^ floorSeed);
         if (lootRandom.nextInt(100) < 28) {
-            hero.potions++;
-            result.add("The enemy dropped a potion.");
+            hero.addItem(Item.health("health_1", "Med Gel", BattleEngine.potionHealAmount()));
+            result.add("The enemy dropped a Med Gel. It was added to Items.");
         }
         for (Iterator<DungeonEnemy> iterator = enemies.iterator(); iterator.hasNext();) {
             if (iterator.next().id == defeated.id) {

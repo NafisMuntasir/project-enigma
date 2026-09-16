@@ -147,7 +147,8 @@ class MouseIntegrationTest {
         DungeonScreen dungeon = dungeon(); GameSession session = game.session();
         DungeonEnemy enemy = new DungeonEnemy(1, EnemyType.CAVE_SLIME, 32, 20, 4);
         game.startCombat(enemy); CombatScreen screen = (CombatScreen)game.getScreen();
-        click(100, 65); assertEquals(3, session.hero.potions); // Full health potion disabled.
+        assertEquals(1, session.hero.inventory.size());
+        assertEquals(3, session.hero.inventory.get(0).quantity); // Starting Med Gels are unified under Items.
         click(100, 130); int after = enemy.health;
         click(100, 130); input.get().keyDown(Input.Keys.NUM_1); assertEquals(after, enemy.health);
         set(screen, "turnAnimationTime", 2f); input.get().keyDown(Input.Keys.NUM_1); assertTrue(enemy.health < after);

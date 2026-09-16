@@ -16,6 +16,8 @@ import com.projectenigma.UiRenderer;
 import com.projectenigma.UtopiaAssets;
 import com.projectenigma.model.DungeonChest;
 import com.projectenigma.model.DungeonEnemy;
+import com.projectenigma.model.DungeonPickup;
+import com.projectenigma.model.Item;
 import com.projectenigma.model.DungeonMap;
 import com.projectenigma.model.GameSession;
 import com.projectenigma.model.TileType;
@@ -24,7 +26,6 @@ import java.util.List;
 import java.util.ArrayDeque;
 import com.badlogic.gdx.math.Vector2;
 import com.projectenigma.input.MouseUi;
-import com.projectenigma.model.ActionAvailability;
 import com.projectenigma.model.BattleAction;
 import com.projectenigma.model.DungeonPathfinder;
 import com.projectenigma.model.GridPoint;
@@ -60,6 +61,9 @@ public final class DungeonScreen extends AbstractGameScreen {
     private float renderedPlayerY;
     private float moveRepeatTimer;
     private boolean inventoryVisible;
+    private boolean equipmentVisible;
+    private int inventorySelection;
+    private int equipmentSelection;
     private boolean pauseVisible;
     private int pauseSelection;
     private String notice = "";
@@ -111,6 +115,9 @@ public final class DungeonScreen extends AbstractGameScreen {
                 if (inventoryVisible) {
                     return handleInventoryInput(keycode);
                 }
+                if (equipmentVisible) {
+                    return handleEquipmentInput(keycode);
+                }
                 if (keycode == Input.Keys.ESCAPE) {
                     cancelRoute();
                     pauseVisible = true;
@@ -120,10 +127,15 @@ public final class DungeonScreen extends AbstractGameScreen {
                 if (keycode == Input.Keys.I || keycode == Input.Keys.TAB) {
                     cancelRoute();
                     inventoryVisible = true;
+                    equipmentVisible = false;
+                    inventorySelection = 0;
                     return true;
                 }
-                if (keycode == Input.Keys.P) {
-                    drinkPotion();
+                if (keycode == Input.Keys.K) {
+                    cancelRoute();
+                    equipmentVisible = true;
+                    inventoryVisible = false;
+                    equipmentSelection = 0;
                     return true;
                 }
                 if (keycode == Input.Keys.E || keycode == Input.Keys.ENTER) {
@@ -161,17 +173,20 @@ public final class DungeonScreen extends AbstractGameScreen {
         });
         useMouse(uiViewport).modal(this::uiLocked);
         mouseUi.worldHand(() -> !worldHint().isEmpty());
-        mouseUi.add("Inventory [I]", 22, 18, 165, 44, () -> { cancelRoute(); inventoryVisible = true; })
+        mouseUi.add("Items [I]", 22, 18, 165, 44, () -> { cancelRoute(); inventoryVisible = true; equipmentVisible = false; inventorySelection = 0; })
                 .when(() -> !uiLocked());
-        mouseUi.add("Use Potion [P]", 197, 18, 175, 44, this::drinkPotion)
-                .when(() -> !uiLocked()).disabled(this::potionReason);
+        mouseUi.add("Equipment [K]", 197, 18, 175, 44, () -> { cancelRoute(); equipmentVisible = true; inventoryVisible = false; equipmentSelection = 0; })
+                .when(() -> !uiLocked());
         mouseUi.add("Pause [Esc]", 382, 18, 160, 44, () -> { cancelRoute(); pauseVisible = true; pauseSelection = 0; })
                 .when(() -> !uiLocked());
         mouseUi.add("Descend [E]", 552, 18, 160, 44, this::useCurrentTile)
                 .when(() -> !uiLocked() && session.isAtExit());
-        mouseUi.add("Use Potion", 420, 160, 210, 44, this::drinkPotion).when(() -> inventoryVisible && !pauseVisible)
-                .disabled(this::potionReason);
-        mouseUi.add("Close", 650, 160, 210, 44, () -> inventoryVisible = false).when(() -> inventoryVisible && !pauseVisible);
+        mouseUi.add("Use Selected", 590, 160, 160, 44, this::useSelectedInventoryItem)
+                .when(() -> inventoryVisible && !pauseVisible).disabled(this::selectedItemReason);
+        mouseUi.add("Close", 760, 160, 160, 44, () -> inventoryVisible = false).when(() -> inventoryVisible && !pauseVisible);
+        mouseUi.add("Equip Selected", 420, 160, 190, 44, this::equipSelectedItem)
+                .when(() -> equipmentVisible && !pauseVisible).disabled(this::selectedEquipmentReason);
+        mouseUi.add("Close", 620, 160, 190, 44, () -> equipmentVisible = false).when(() -> equipmentVisible && !pauseVisible);
         for (int i = 0; i < pauseOptions.length; i++) {
             final int index = i;
             mouseUi.add(pauseOptions[i], 500, 375 - i * 60, 280, 44, () -> { pauseSelection = index; activatePause(); })
@@ -188,10 +203,8 @@ public final class DungeonScreen extends AbstractGameScreen {
         mouseUi.add("Abandon Race", 540, 275, 200, 44, game::abandonRace).when(this::isWaitingForOpponent);
     }
 
-    private String potionReason() { return ActionAvailability.reason(session.hero, BattleAction.POTION); }
-
     /** True whenever normal exploration input (movement, HUD buttons, world clicks) should be suppressed. */
-    private boolean uiLocked() { return pauseVisible || inventoryVisible || isWaitingForOpponent(); }
+    private boolean uiLocked() { return pauseVisible || inventoryVisible || equipmentVisible || isWaitingForOpponent(); }
 
     private boolean isWaitingForOpponent() { return raceMode && game.isRaceWaitingForOpponent(); }
 
@@ -270,6 +283,8 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (enemy != null && isVisible(x, y)) return "Engage " + enemy.displayName();
         DungeonChest chest = session.chestAt(x, y);
         if (chest != null && !chest.opened) return "Open chest";
+        DungeonPickup pickup = session.pickupAt(x, y);
+        if (pickup != null) return "Pick up " + pickup.item.name;
         if (session.dungeon().exit().equals(new GridPoint(x, y))) return "Walk to stairs; use Descend on arrival";
         return "";
     }
@@ -302,24 +317,103 @@ public final class DungeonScreen extends AbstractGameScreen {
             inventoryVisible = false;
             return true;
         }
-        if (keycode == Input.Keys.P || keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
-            drinkPotion();
+        if (keycode == Input.Keys.UP || keycode == Input.Keys.W) {
+            inventorySelection = Math.max(0, inventorySelection - 1);
+            return true;
+        }
+        if (keycode == Input.Keys.DOWN || keycode == Input.Keys.S) {
+            inventorySelection = Math.min(Math.max(0, inventoryChoices().size() - 1), inventorySelection + 1);
+            return true;
+        }
+        if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
+            useSelectedInventoryItem();
+            return true;
+        }
+        if (keycode == Input.Keys.K) {
+            inventoryVisible = false;
+            equipmentVisible = true;
+            equipmentSelection = 0;
             return true;
         }
         return false;
     }
 
-    private void drinkPotion() {
-        int before = session.hero.health;
-        if (session.hero.usePotion()) {
-            game.sounds().schedule(this, SoundCue.HEAL, .07f);
-            setNotice("Potion restores " + (session.hero.health - before) + " HP.");
-            if (!raceMode) game.saveGame();
-        } else if (session.hero.potions <= 0) {
-            setNotice("No potions remain.");
-        } else {
-            setNotice("Health is already full.");
+    private boolean handleEquipmentInput(int keycode) {
+        if (keycode == Input.Keys.ESCAPE || keycode == Input.Keys.K) {
+            equipmentVisible = false;
+            return true;
         }
+        if (keycode == Input.Keys.UP || keycode == Input.Keys.W) {
+            equipmentSelection = Math.max(0, equipmentSelection - 1);
+            return true;
+        }
+        if (keycode == Input.Keys.DOWN || keycode == Input.Keys.S) {
+            equipmentSelection = Math.min(Math.max(0, equipmentChoices().size() - 1), equipmentSelection + 1);
+            return true;
+        }
+        if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
+            equipSelectedItem();
+            return true;
+        }
+        return false;
+    }
+
+    private List<Item> inventoryChoices() {
+        List<Item> choices = new java.util.ArrayList<>();
+        if (session.hero.inventory != null) {
+            for (Item item : session.hero.inventory) {
+                if (item != null && item.isConsumable() && item.quantity > 0) choices.add(item);
+            }
+        }
+        return choices;
+    }
+
+    private List<Item> equipmentChoices() {
+        List<Item> choices = new java.util.ArrayList<>();
+        if (session.hero.inventory != null) {
+            for (Item item : session.hero.inventory) {
+                if (item != null && item.isEquipment()) choices.add(item);
+            }
+        }
+        return choices;
+    }
+
+    private String selectedItemReason() {
+        List<Item> choices = inventoryChoices();
+        if (choices.isEmpty()) return "No picked-up consumables.";
+        if (inventorySelection >= choices.size()) inventorySelection = 0;
+        Item item = choices.get(inventorySelection);
+        return session.hero.canUseItem(item) ? "" : "Cannot use this item right now.";
+    }
+
+    private String selectedEquipmentReason() {
+        List<Item> choices = equipmentChoices();
+        if (choices.isEmpty()) return "No spare equipment.";
+        if (equipmentSelection >= choices.size()) equipmentSelection = 0;
+        return "";
+    }
+
+    private void useSelectedInventoryItem() {
+        List<Item> choices = inventoryChoices();
+        if (choices.isEmpty()) { setNotice("No picked-up consumables."); return; }
+        if (inventorySelection >= choices.size()) inventorySelection = 0;
+        Item item = choices.get(inventorySelection);
+        int restored = session.hero.useItem(item);
+        if (restored <= 0) { setNotice("Cannot use that item right now."); return; }
+        game.sounds().play(item.type == Item.Type.HEALTH ? SoundCue.HEAL : SoundCue.POWER_UP);
+        setNotice(item.name + " restores " + restored + (item.type == Item.Type.HEALTH ? " HP." : " EN."));
+        if (!raceMode) game.saveGame();
+    }
+
+    private void equipSelectedItem() {
+        List<Item> choices = equipmentChoices();
+        if (choices.isEmpty()) { setNotice("No spare equipment."); return; }
+        if (equipmentSelection >= choices.size()) equipmentSelection = 0;
+        Item item = choices.get(equipmentSelection);
+        session.hero.equip(item);
+        setNotice("Equipped " + item.name + ". ATK/DEF updated.");
+        equipmentVisible = false;
+        if (!raceMode) game.saveGame();
     }
 
     private void useCurrentTile() {
@@ -361,6 +455,17 @@ public final class DungeonScreen extends AbstractGameScreen {
         }
 
         session.movePlayerTo(targetX, targetY);
+        DungeonPickup pickup = session.pickupAt(targetX, targetY);
+        if (pickup != null) {
+            List<String> loot = session.collectPickup(pickup);
+            if (pickup.item != null && pickup.item.type != Item.Type.WEAPON && pickup.item.type != Item.Type.ARMOR) {
+                game.sounds().play(pickup.item.type == Item.Type.HEALTH ? SoundCue.HEAL : SoundCue.POWER_UP);
+            } else {
+                game.sounds().play(SoundCue.POWER_UP);
+            }
+            setNotice(String.join("\n", loot));
+            if (!raceMode) game.saveGame();
+        } else {
         DungeonChest chest = session.chestAt(targetX, targetY);
         if (chest != null && !chest.opened) {
             int manaBefore = session.hero.mana;
@@ -373,6 +478,7 @@ public final class DungeonScreen extends AbstractGameScreen {
             setNotice("Stairs found. Click Descend or press E / Enter.");
         } else if (!raceMode && session.stepsTaken % 25 == 0) {
             game.saveGame();
+        }
         }
     }
 
@@ -464,6 +570,9 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (inventoryVisible) {
             drawInventory();
         }
+        if (equipmentVisible) {
+            drawEquipment();
+        }
         if (pauseVisible) {
             drawPauseMenu();
         }
@@ -537,9 +646,33 @@ public final class DungeonScreen extends AbstractGameScreen {
         game.batch().setColor(1f, 1f, 1f, 1f);
         drawExit(map);
         drawChests();
+        game.batch().end();
+        drawPickups();
+        game.batch().setProjectionMatrix(worldCamera.combined);
+        game.batch().begin();
+        game.batch().setColor(1f, 1f, 1f, 1f);
         drawEnemies();
         drawPlayer();
         game.batch().end();
+    }
+
+    private void drawPickups() {
+        ShapeRenderer shapes = game.shapes();
+        shapes.setProjectionMatrix(worldCamera.combined);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (DungeonPickup pickup : session.pickups) {
+            if (pickup.collected || !explored[pickup.x][pickup.y] || !isVisible(pickup.x, pickup.y) || pickup.item == null) continue;
+            switch (pickup.item.type) {
+                case HEALTH -> shapes.setColor(Palette.HEALTH);
+                case ENERGY, MAX_ENERGY -> shapes.setColor(Palette.MANA);
+                case MAX_HEALTH -> shapes.setColor(Palette.XP);
+                case WEAPON -> shapes.setColor(Palette.ACCENT);
+                case ARMOR -> shapes.setColor(Palette.BLUE_LIGHT);
+            }
+            shapes.circle(pickup.x + .5f, pickup.y + .55f, .18f);
+            shapes.circle(pickup.x + .5f, pickup.y + .55f, .07f);
+        }
+        shapes.end();
     }
 
     private void revealNearbyTiles(DungeonMap map) {
@@ -632,7 +765,7 @@ public final class DungeonScreen extends AbstractGameScreen {
                 36f, 605f, Palette.TEXT);
         UiRenderer.text(game.batch(), game.mediumFont(), "Dungeon Floor " + session.floorNumber, 954f, 682f, Palette.TEXT);
         UiRenderer.text(game.batch(), game.font(), "Enemies " + session.enemies.size() + "    Gold " + session.hero.gold
-                + "    Potions " + session.hero.potions, 954f, 646f, Palette.MUTED);
+                + "    Items " + inventoryChoices().size(), 954f, 646f, Palette.MUTED);
         UiRenderer.centeredText(game.batch(), game.font(), "Click: move | Right-click: stop | WASD",
                 980f, 36f, Palette.MUTED);
         String hint = worldHint();
@@ -650,25 +783,59 @@ public final class DungeonScreen extends AbstractGameScreen {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0f, 0f, 0f, 0.72f);
         shapes.rect(0f, 0f, UiRenderer.WIDTH, UiRenderer.HEIGHT);
-        UiRenderer.panel(shapes, 330f, 145f, 620f, 430f, Palette.PANEL_LIGHT);
+        UiRenderer.panel(shapes, 280f, 115f, 720f, 490f, Palette.PANEL_LIGHT);
         shapes.setColor(Palette.ACCENT);
-        shapes.rect(330f, 565f, 620f, 10f);
-        UiRenderer.bar(shapes, 510f, 352f, 330f, 22f, session.hero.health, session.hero.maxHealth, Palette.HEALTH);
-        UiRenderer.bar(shapes, 510f, 305f, 330f, 22f, session.hero.mana, session.hero.maxMana, Palette.MANA);
+        shapes.rect(280f, 595f, 720f, 10f);
         shapes.end();
 
+        List<Item> choices = inventoryChoices();
+        if (!choices.isEmpty() && inventorySelection >= choices.size()) inventorySelection = 0;
         game.batch().begin();
-        UiRenderer.centeredText(game.batch(), game.titleFont(), "INVENTORY", 640f, 525f, Palette.TEXT);
-        UiRenderer.text(game.batch(), game.mediumFont(), session.hero.heroClass.displayName() + " - Level " + session.hero.level,
-                415f, 455f, Palette.TEXT);
-        UiRenderer.text(game.batch(), game.font(), "Attack: " + session.hero.attack + "    Defense: " + session.hero.defense,
-                415f, 416f, Palette.MUTED);
-        UiRenderer.text(game.batch(), game.font(), "Health", 415f, 370f, Palette.TEXT);
-        UiRenderer.text(game.batch(), game.font(), "Energy", 415f, 323f, Palette.TEXT);
-        UiRenderer.text(game.batch(), game.mediumFont(), "Potions: " + session.hero.potions, 415f, 260f, Palette.GOLD);
-        UiRenderer.text(game.batch(), game.mediumFont(), "Gold: " + session.hero.gold, 690f, 260f, Palette.GOLD);
-        UiRenderer.centeredText(game.batch(), game.font(), "P / Enter: use potion    I / Tab / Esc: close",
-                640f, 223f, Palette.MUTED);
+        UiRenderer.centeredText(game.batch(), game.titleFont(), "ITEMS", 640f, 555f, Palette.TEXT);
+        if (choices.isEmpty()) {
+            UiRenderer.centeredText(game.batch(), game.font(), "No picked-up consumables yet.", 640f, 430f, Palette.MUTED);
+        } else {
+            for (int i = 0; i < choices.size(); i++) {
+                Item item = choices.get(i);
+                Color color = i == inventorySelection ? Palette.TEXT : Palette.MUTED;
+                UiRenderer.text(game.batch(), game.mediumFont(), (i == inventorySelection ? "> " : "  ") + item.name + " x" + item.quantity, 355f, 455f - i * 48f, color);
+                UiRenderer.text(game.batch(), game.font(), item.description, 620f, 455f - i * 48f, Palette.MUTED);
+            }
+        }
+        UiRenderer.centeredText(game.batch(), game.font(), "W/S: select | Enter: use | I / Esc: close | K: equipment", 640f, 205f, Palette.MUTED);
+        game.batch().end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    private void drawEquipment() {
+        ShapeRenderer shapes = game.shapes();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.72f);
+        shapes.rect(0f, 0f, UiRenderer.WIDTH, UiRenderer.HEIGHT);
+        UiRenderer.panel(shapes, 280f, 105f, 720f, 510f, Palette.PANEL_LIGHT);
+        shapes.setColor(Palette.BLUE);
+        shapes.rect(280f, 605f, 720f, 10f);
+        shapes.end();
+
+        List<Item> choices = equipmentChoices();
+        if (!choices.isEmpty() && equipmentSelection >= choices.size()) equipmentSelection = 0;
+        game.batch().begin();
+        UiRenderer.centeredText(game.batch(), game.titleFont(), "EQUIPMENT", 640f, 560f, Palette.TEXT);
+        UiRenderer.text(game.batch(), game.mediumFont(), "Weapon: " + session.hero.equippedWeaponName() + "  (ATK +" + session.hero.equipmentAttackBonus() + ")", 330f, 505f, Palette.TEXT);
+        UiRenderer.text(game.batch(), game.mediumFont(), "Armor:  " + session.hero.equippedArmorName() + "  (DEF +" + session.hero.equipmentDefenseBonus() + ")", 330f, 470f, Palette.TEXT);
+        UiRenderer.text(game.batch(), game.font(), "Current ATK " + session.hero.attack() + "    Current DEF " + session.hero.defense(), 330f, 430f, Palette.MUTED);
+        if (choices.isEmpty()) {
+            UiRenderer.centeredText(game.batch(), game.font(), "No spare equipment yet.", 640f, 365f, Palette.MUTED);
+        } else {
+            for (int i = 0; i < choices.size(); i++) {
+                Item item = choices.get(i);
+                Color color = i == equipmentSelection ? Palette.TEXT : Palette.MUTED;
+                UiRenderer.text(game.batch(), game.mediumFont(), (i == equipmentSelection ? "> " : "  ") + item.name, 355f, 380f - i * 46f, color);
+                UiRenderer.text(game.batch(), game.font(), item.description, 650f, 380f - i * 46f, Palette.MUTED);
+            }
+        }
+        UiRenderer.centeredText(game.batch(), game.font(), "W/S: select | Enter: equip | K / Esc: close", 640f, 205f, Palette.MUTED);
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }

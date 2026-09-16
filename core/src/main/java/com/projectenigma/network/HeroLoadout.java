@@ -30,7 +30,7 @@ public record HeroLoadout(HeroClass heroClass, int level, int maxHealth, int hea
 
     public static HeroLoadout of(Hero hero) {
         return new HeroLoadout(hero.heroClass, hero.level, hero.maxHealth, hero.health,
-                hero.maxMana, hero.mana, hero.attack, hero.defense, hero.potions);
+                hero.maxMana, hero.mana, hero.attack(), hero.defense(), hero.potions);
     }
 
     /**

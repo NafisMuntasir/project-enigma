@@ -161,7 +161,6 @@ public final class MenuScreen extends AbstractGameScreen {
                 + "WASD / Arrow Keys  -  Move\n"
                 + "E / Enter          -  Use the stairs\n"
                 + "I / Tab            -  Inventory\n"
-                + "P                  -  Drink a potion\n"
                 + "Esc                -  Pause\n\n"
                 + "COMBAT\n"
                 + "W/S / Arrow Keys   -  Select an action\n"

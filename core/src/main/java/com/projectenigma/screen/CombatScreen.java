@@ -20,6 +20,7 @@ import com.projectenigma.model.BattleEngine;
 import com.projectenigma.model.BattleOutcome;
 import com.projectenigma.model.DungeonEnemy;
 import com.projectenigma.model.GameSession;
+import com.projectenigma.model.Item;
 import com.projectenigma.model.TurnResult;
 
 import java.util.ArrayList;
@@ -33,7 +34,7 @@ public final class CombatScreen extends AbstractGameScreen {
     private final GameSession session;
     private final DungeonEnemy enemy;
     private final BattleEngine engine;
-    private final BattleAction[] actions = BattleAction.values();
+    private final BattleAction[] actions = { BattleAction.ATTACK, BattleAction.SKILL, BattleAction.GUARD, BattleAction.RUN };
     private final List<String> logLines = new ArrayList<>();
     private final OrthographicCamera camera;
     private final FitViewport viewport;
@@ -44,6 +45,8 @@ public final class CombatScreen extends AbstractGameScreen {
     private float turnAnimationTime = TURN_ANIMATION_DURATION;
     private BattleAction animatedHeroAction = BattleAction.ATTACK;
     private boolean animatedEnemyReply;
+    private boolean itemsVisible;
+    private int itemSelection;
 
     public CombatScreen(ProjectEnigmaGame game, GameSession session, DungeonEnemy enemy) {
         super(game);
@@ -61,6 +64,9 @@ public final class CombatScreen extends AbstractGameScreen {
                 if (turnAnimationTime < TURN_ANIMATION_DURATION) {
                     return true;
                 }
+                if (itemsVisible) {
+                    return handleItemsInput(keycode);
+                }
                 if (outcome != BattleOutcome.ONGOING) {
                     if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE || keycode == Input.Keys.ESCAPE) {
                         leaveBattle();
@@ -76,13 +82,18 @@ public final class CombatScreen extends AbstractGameScreen {
                     selected = (selected + 1) % actions.length;
                     return true;
                 }
-                if (keycode >= Input.Keys.NUM_1 && keycode <= Input.Keys.NUM_5) {
+                if (keycode >= Input.Keys.NUM_1 && keycode <= Input.Keys.NUM_4) {
                     selected = keycode - Input.Keys.NUM_1;
                     performSelectedAction();
                     return true;
                 }
                 if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
                     performSelectedAction();
+                    return true;
+                }
+                if (keycode == Input.Keys.I) {
+                    itemsVisible = true;
+                    itemSelection = 0;
                     return true;
                 }
                 if (keycode == Input.Keys.ESCAPE) {
@@ -93,16 +104,116 @@ public final class CombatScreen extends AbstractGameScreen {
                 return false;
             }
         });
-        useMouse(viewport);
+        useMouse(viewport).modal(() -> itemsVisible);
         for (int i = 0; i < actions.length; i++) {
             final int index = i;
             mouseUi.add((i + 1) + " " + actions[i].label(), 37 + (i % 3) * 155, i < 3 ? 105 : 42, 145, 48,
                     () -> { selected = index; performSelectedAction(); })
-                    .when(() -> outcome == BattleOutcome.ONGOING).hover(() -> selected = index)
+                    .when(() -> outcome == BattleOutcome.ONGOING && !itemsVisible).hover(() -> selected = index)
                     .selected(() -> selected == index).disabled(() -> actionReason(actions[index]));
         }
-        mouseUi.add("Continue", 130, 80, 270, 52, this::leaveBattle).when(() -> outcome != BattleOutcome.ONGOING)
+        mouseUi.add("Items [I]", 347, 42, 145, 48, () -> { itemsVisible = true; itemSelection = 0; })
+                .when(() -> outcome == BattleOutcome.ONGOING && !itemsVisible && turnAnimationTime >= TURN_ANIMATION_DURATION);
+        for (int i = 0; i < 8; i++) {
+            final int index = i;
+            mouseUi.add(() -> itemLabel(index), 550, 525 - i * 52, 600, 44, () -> { itemSelection = index; useSelectedCombatItem(); })
+                    .when(() -> itemsVisible && index < combatItemChoices().size())
+                    .hover(() -> itemSelection = index)
+                    .selected(() -> itemSelection == index)
+                    .disabled(() -> itemReason(index));
+        }
+        mouseUi.add("Close Items", 550, 90, 240, 44, () -> itemsVisible = false)
+                .when(() -> itemsVisible);
+        mouseUi.add("Continue", 130, 80, 270, 52, this::leaveBattle).when(() -> outcome != BattleOutcome.ONGOING && !itemsVisible)
                 .disabled(() -> turnAnimationTime < TURN_ANIMATION_DURATION ? "Finishing animation..." : "");
+    }
+
+    private List<Item> combatItemChoices() {
+        List<Item> choices = new ArrayList<>();
+        if (session.hero.inventory != null) {
+            for (Item item : session.hero.inventory) {
+                if (item != null && item.isConsumable() && item.quantity > 0) choices.add(item);
+            }
+        }
+        return choices;
+    }
+
+    private String itemLabel(int index) {
+        List<Item> choices = combatItemChoices();
+        if (index >= choices.size()) return "";
+        Item item = choices.get(index);
+        return (index == itemSelection ? "> " : "  ") + item.name + " x" + item.quantity;
+    }
+
+    private String itemReason(int index) {
+        if (!itemsVisible) return "";
+        List<Item> choices = combatItemChoices();
+        if (index >= choices.size()) return "";
+        if (turnAnimationTime < TURN_ANIMATION_DURATION) return "Finishing animation...";
+        return session.hero.canUseItem(choices.get(index)) ? "" : "Cannot use this item right now.";
+    }
+
+    private boolean handleItemsInput(int keycode) {
+        if (keycode == Input.Keys.ESCAPE || keycode == Input.Keys.I) {
+            itemsVisible = false;
+            return true;
+        }
+        List<Item> choices = combatItemChoices();
+        if (choices.isEmpty()) {
+            if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
+                addLog("No picked-up items available.");
+                return true;
+            }
+            return keycode != Input.Keys.ESCAPE;
+        }
+        if (keycode == Input.Keys.UP || keycode == Input.Keys.W) {
+            itemSelection = Math.floorMod(itemSelection - 1, choices.size());
+            return true;
+        }
+        if (keycode == Input.Keys.DOWN || keycode == Input.Keys.S) {
+            itemSelection = (itemSelection + 1) % choices.size();
+            return true;
+        }
+        if (keycode == Input.Keys.ENTER || keycode == Input.Keys.SPACE) {
+            useSelectedCombatItem();
+            return true;
+        }
+        return true;
+    }
+
+    private void useSelectedCombatItem() {
+        List<Item> choices = combatItemChoices();
+        if (choices.isEmpty()) { addLog("No picked-up items available."); return; }
+        if (itemSelection >= choices.size()) itemSelection = 0;
+        Item item = choices.get(itemSelection);
+        if (!session.hero.canUseItem(item)) {
+            addLog(itemReason(itemSelection));
+            return;
+        }
+        int restored = session.hero.useItem(item);
+        if (restored <= 0) {
+            addLog("That item could not be used.");
+            return;
+        }
+        itemsVisible = false;
+        addLog(session.hero.displayName() + " uses " + item.name + " and restores " + restored
+                + (item.type == Item.Type.HEALTH ? " HP." : " EN."));
+        game.sounds().schedule(this, item.type == Item.Type.HEALTH ? SoundCue.HEAL : SoundCue.POWER_UP, 0);
+        animatedHeroAction = BattleAction.SKILL;
+        animatedEnemyReply = false;
+        turnAnimationTime = 0f;
+
+        int healthBeforeReply = session.hero.health;
+        TurnResult enemyTurn = engine.resolve(enemy, session.hero, BattleAction.ATTACK);
+        CombatAudio.queue(game.sounds(), this, CombatAudio.changes(false, session.hero.health < healthBeforeReply, false), HERO_ACTION_PHASE);
+        animatedEnemyReply = true;
+        for (String message : enemyTurn.messages()) addLog(message);
+        if (enemyTurn.outcome() == BattleOutcome.VICTORY) {
+            outcome = BattleOutcome.DEFEAT;
+            addLog("You collapse in the dungeon.");
+            game.saves().deleteSave();
+            addLog("Press Enter to continue.");
+        }
     }
 
     private String actionReason(BattleAction action) {
@@ -157,9 +268,8 @@ public final class CombatScreen extends AbstractGameScreen {
             return;
         }
 
-        // ONGOING: covers a completed ATTACK/SKILL, a GUARD, a successful
-        // POTION, or a failed RUN attempt -- in every one of those cases the
-        // enemy still gets its automatic reply.
+        // ONGOING: covers a completed ATTACK/SKILL, a GUARD, an item use,
+        // or a failed RUN attempt -- in every one of those cases the enemy still replies.
         int healthBeforeReply = session.hero.health;
         TurnResult enemyTurn = engine.resolve(enemy, session.hero, BattleAction.ATTACK);
         CombatAudio.queue(game.sounds(), this, CombatAudio.changes(false,
@@ -208,6 +318,7 @@ public final class CombatScreen extends AbstractGameScreen {
         drawArena();
         drawCombatants();
         drawInterface();
+        if (itemsVisible) drawItemsMenu();
         drawMouse();
     }
 
@@ -317,6 +428,37 @@ public final class CombatScreen extends AbstractGameScreen {
         } else {
             UiRenderer.text(game.batch(), game.mediumFont(), "Click Continue or press Enter", 760f, 38f, Palette.GOLD);
         }
+        game.batch().end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
+    private void drawItemsMenu() {
+        ShapeRenderer shapes = game.shapes();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.78f);
+        shapes.rect(0f, 0f, UiRenderer.WIDTH, UiRenderer.HEIGHT);
+        UiRenderer.panel(shapes, 470f, 105f, 680f, 510f, Palette.PANEL_LIGHT);
+        shapes.setColor(Palette.ACCENT);
+        shapes.rect(470f, 605f, 680f, 10f);
+        shapes.end();
+
+        List<Item> choices = combatItemChoices();
+        if (!choices.isEmpty() && itemSelection >= choices.size()) itemSelection = 0;
+        game.batch().begin();
+        UiRenderer.centeredText(game.batch(), game.titleFont(), "COMBAT ITEMS", 810f, 565f, Palette.TEXT);
+        if (choices.isEmpty()) {
+            UiRenderer.centeredText(game.batch(), game.mediumFont(), "No picked-up items.", 810f, 410f, Palette.MUTED);
+        } else {
+            for (int i = 0; i < choices.size(); i++) {
+                Item item = choices.get(i);
+                UiRenderer.text(game.batch(), game.mediumFont(), (i == itemSelection ? "> " : "  ") + item.name + " x" + item.quantity,
+                        505f, 530f - i * 52f, i == itemSelection ? Palette.TEXT : Palette.MUTED);
+                UiRenderer.text(game.batch(), game.font(), item.description, 790f, 530f - i * 52f, Palette.MUTED);
+            }
+        }
+        UiRenderer.centeredText(game.batch(), game.font(), "W/S: select | Enter: use | I / Esc: close (uses your turn)",
+                810f, 125f, Palette.MUTED);
         game.batch().end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }
