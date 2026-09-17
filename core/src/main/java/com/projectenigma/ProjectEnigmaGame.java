@@ -390,18 +390,25 @@ public final class ProjectEnigmaGame extends Game {
 
             @Override
             public void onRaceStart(RaceStartPacket packet) {
-                if (raceMode) {
+                    // The host's own Race Mode selection -- not whatever this guest
+                    // happened to toggle locally before pressing Join -- is what
+                    // actually decides whether this match is a race. A classic host
+                    // never sends this packet, so forwarding unconditionally is safe,
+                    // and it's what lets a guest who joined through the plain "Join"
+                    // button still be pulled into exploration when the host is
+                    // running Race Mode.
                     onRaceStartReceived(packet);
-                }
             }
 
             @Override
             public void onRaceTimerSync(RaceTimerSyncPacket packet) {
-                if (raceMode) {
+                    // Same reasoning as onRaceStart -- onRaceTimerSyncReceived already
+                    // no-ops unless this client's own raceState is EXPLORING.
                     onRaceTimerSyncReceived(packet);
-                }
             }
+
         });
+
         pvpClient.connect(hostAddress, PVP_DEFAULT_PORT);
     }
 
@@ -460,14 +467,41 @@ public final class ProjectEnigmaGame extends Game {
         pvpServer.sendToGuest(new RaceStartPacket(dungeonSeed, raceDurationSeconds));
     }
 
+    /**
+     * The local hero class for a Race-to-PvP match. Normally set by
+     * onRaceClassSelected when this side joined through Race Mode. A guest
+     * that instead joined through the classic "Join" button (because only
+     * the host toggled Race Mode) picks its class on the classic
+     * ClassSelectScreen instead, which records it in pvpLocalHero via
+     * onPvPClassSelected -- fall back to that so a host-initiated race still
+     * has a class to build the guest's exploration GameSession from.
+     */
+    private HeroClass resolvedLocalRaceHeroClass() {
+            if (raceLocalHeroClass != null) {
+                    return raceLocalHeroClass;
+            }
+            return pvpLocalHero != null ? pvpLocalHero.heroClass : null;
+    }
+
     private void onRaceStartReceived(RaceStartPacket packet) {
-        raceDurationSeconds = packet.durationSeconds();
-        GameSession raceSession = new GameSession(packet.dungeonSeed(), raceLocalHeroClass);
-        beginRaceExploration(raceSession);
+            HeroClass localClass = resolvedLocalRaceHeroClass();
+            if (localClass == null) {
+                    // Should never happen: the host only sends this after it has
+                    // already received this client's class selection (see
+                    // tryBeginRaceAsHost()), so one of the two fields above must
+                    // already be set. Guard anyway rather than handing GameSession
+                    // a null class.
+                    Gdx.app.log("ProjectEnigmaGame", "Received RaceStartPacket before a local class was chosen; ignoring.");
+                    return;
+            }
+            raceLocalHeroClass = localClass;
+            raceDurationSeconds = packet.durationSeconds();
+            GameSession raceSession = new GameSession(packet.dungeonSeed(), localClass);
+            beginRaceExploration(raceSession);
     }
 
     private void beginRaceExploration(GameSession raceSession) {
-        session = raceSession;
+            session = raceSession;
         raceSessionActive = true;
         raceEndRequested = false;
         raceState = RaceState.EXPLORING;
