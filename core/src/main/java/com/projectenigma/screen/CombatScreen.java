@@ -22,6 +22,7 @@ import com.projectenigma.model.DungeonEnemy;
 import com.projectenigma.model.GameSession;
 import com.projectenigma.model.Item;
 import com.projectenigma.model.TurnResult;
+import com.projectenigma.model.Skill;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -64,6 +65,7 @@ public final class CombatScreen extends AbstractGameScreen {
                 if (turnAnimationTime < TURN_ANIMATION_DURATION) {
                     return true;
                 }
+                if (keycode == Input.Keys.L && outcome == BattleOutcome.ONGOING && !itemsVisible) { openSkills(); return true; }
                 if (itemsVisible) {
                     return handleItemsInput(keycode);
                 }
@@ -97,7 +99,7 @@ public final class CombatScreen extends AbstractGameScreen {
                     return true;
                 }
                 if (keycode == Input.Keys.ESCAPE) {
-                    selected = BattleAction.RUN.ordinal();
+                    selected = actions.length - 1;
                     performSelectedAction();
                     return true;
                 }
@@ -126,6 +128,19 @@ public final class CombatScreen extends AbstractGameScreen {
                 .when(() -> itemsVisible);
         mouseUi.add("Continue", 130, 80, 270, 52, this::leaveBattle).when(() -> outcome != BattleOutcome.ONGOING && !itemsVisible)
                 .disabled(() -> turnAnimationTime < TURN_ANIMATION_DURATION ? "Finishing animation..." : "");
+        mouseUi.add("Skills [L]", 192, 42, 145, 48, this::openSkills)
+                .when(() -> outcome == BattleOutcome.ONGOING && !itemsVisible)
+                .disabled(() -> turnAnimationTime < TURN_ANIMATION_DURATION ? "Finishing animation..." : "");
+        useProgression(new ProgressionOverlay(game, viewport, () -> session.hero, () -> false,
+                skill -> actionReason(BattleAction.ATTACK).isEmpty() ? engine.skillReason(session.hero, enemy, skill) : actionReason(BattleAction.ATTACK),
+                skill -> performAction(BattleAction.SKILL, skill, null),
+                () -> performAction(BattleAction.SKILL, null, null), () -> actionReason(BattleAction.SKILL),
+                () -> { game.saveGame(); game.progressionSelectionCompleted(); }));
+    }
+
+    private void openSkills() {
+        if (outcome != BattleOutcome.ONGOING || itemsVisible || turnAnimationTime < TURN_ANIMATION_DURATION) return;
+        mouseUi.cancel(); progressionUi.openSkills();
     }
 
     private List<Item> combatItemChoices() {
@@ -183,37 +198,9 @@ public final class CombatScreen extends AbstractGameScreen {
 
     private void useSelectedCombatItem() {
         List<Item> choices = combatItemChoices();
-        if (choices.isEmpty()) { addLog("No picked-up items available."); return; }
+        if (choices.isEmpty() || !actionReason(BattleAction.ATTACK).isEmpty()) return;
         if (itemSelection >= choices.size()) itemSelection = 0;
-        Item item = choices.get(itemSelection);
-        if (!session.hero.canUseItem(item)) {
-            addLog(itemReason(itemSelection));
-            return;
-        }
-        int restored = session.hero.useItem(item);
-        if (restored <= 0) {
-            addLog("That item could not be used.");
-            return;
-        }
-        itemsVisible = false;
-        addLog(session.hero.displayName() + " uses " + item.name + " and restores " + restored
-                + (item.type == Item.Type.HEALTH ? " HP." : " EN."));
-        game.sounds().schedule(this, item.type == Item.Type.HEALTH ? SoundCue.HEAL : SoundCue.POWER_UP, 0);
-        animatedHeroAction = BattleAction.SKILL;
-        animatedEnemyReply = false;
-        turnAnimationTime = 0f;
-
-        int healthBeforeReply = session.hero.health;
-        TurnResult enemyTurn = engine.resolve(enemy, session.hero, BattleAction.ATTACK);
-        CombatAudio.queue(game.sounds(), this, CombatAudio.changes(false, session.hero.health < healthBeforeReply, false), HERO_ACTION_PHASE);
-        animatedEnemyReply = true;
-        for (String message : enemyTurn.messages()) addLog(message);
-        if (enemyTurn.outcome() == BattleOutcome.VICTORY) {
-            outcome = BattleOutcome.DEFEAT;
-            addLog("You collapse in the dungeon.");
-            game.saves().deleteSave();
-            addLog("Press Enter to continue.");
-        }
+        performAction(BattleAction.SKILL, null, choices.get(itemSelection));
     }
 
     private String actionReason(BattleAction action) {
@@ -232,10 +219,15 @@ public final class CombatScreen extends AbstractGameScreen {
      */
     private void performSelectedAction() {
         BattleAction action = actions[selected];
-        String unavailable = actionReason(action);
+        performAction(action, null, null);
+    }
+
+    private void performAction(BattleAction action, Skill skill, Item item) {
+        String unavailable = actionReason(skill == null && item == null ? action : BattleAction.ATTACK);
         if (!unavailable.isEmpty()) { addLog(unavailable); return; }
         int heroHealthBefore = session.hero.health, enemyHealthBefore = enemy.health, manaBefore = session.hero.mana;
-        TurnResult playerTurn = engine.resolve(session.hero, enemy, action);
+        TurnResult playerTurn = skill != null ? engine.resolveSkill(session.hero, enemy, skill)
+                : item != null ? engine.resolveItem(session.hero, enemy, item) : engine.resolve(session.hero, enemy, action);
         for (String message : playerTurn.messages()) {
             addLog(message);
         }
@@ -243,24 +235,15 @@ public final class CombatScreen extends AbstractGameScreen {
             return;
         }
         CombatAudio.queue(game.sounds(), this, CombatAudio.changes(session.hero.mana < manaBefore,
-                enemy.health < enemyHealthBefore, session.hero.health > heroHealthBefore), 0);
+                enemy.health < enemyHealthBefore || session.hero.health < heroHealthBefore,
+                session.hero.health > heroHealthBefore || enemy.health > enemyHealthBefore), 0);
+        itemsVisible = false;
         animatedHeroAction = action;
         animatedEnemyReply = false;
         turnAnimationTime = 0f;
 
-        if (playerTurn.outcome() == BattleOutcome.VICTORY) {
-            outcome = BattleOutcome.VICTORY;
-            int levelBefore = session.hero.level;
-            int healthBeforeReward = session.hero.health;
-            for (String message : session.defeatEnemy(enemy)) {
-                addLog(message);
-            }
-            if (session.hero.level > levelBefore) game.sounds().schedule(this, SoundCue.POWER_UP, .85f);
-            if (session.hero.health > healthBeforeReward) game.sounds().schedule(this, SoundCue.HEAL, .60f);
-            game.saveGame();
-            addLog("Press Enter to return to the dungeon.");
-            return;
-        }
+        if (playerTurn.outcome() == BattleOutcome.VICTORY) { winBattle(); return; }
+        if (playerTurn.outcome() == BattleOutcome.DEFEAT) { loseBattle(); return; }
         if (playerTurn.outcome() == BattleOutcome.ESCAPED) {
             outcome = BattleOutcome.ESCAPED;
             game.saveGame();
@@ -271,25 +254,42 @@ public final class CombatScreen extends AbstractGameScreen {
         // ONGOING: covers a completed ATTACK/SKILL, a GUARD, an item use,
         // or a failed RUN attempt -- in every one of those cases the enemy still replies.
         int healthBeforeReply = session.hero.health;
+        int enemyHealthBeforeReply = enemy.health;
         TurnResult enemyTurn = engine.resolve(enemy, session.hero, BattleAction.ATTACK);
         CombatAudio.queue(game.sounds(), this, CombatAudio.changes(false,
-                session.hero.health < healthBeforeReply, false), HERO_ACTION_PHASE);
-        animatedEnemyReply = true;
+                session.hero.health < healthBeforeReply || enemy.health < enemyHealthBeforeReply,
+                session.hero.health > healthBeforeReply || enemy.health > enemyHealthBeforeReply), HERO_ACTION_PHASE);
+        animatedEnemyReply = enemyTurn.messages().stream().anyMatch(m -> m.contains("'s attack deals"));
         for (String message : enemyTurn.messages()) {
             addLog(message);
         }
-        if (enemyTurn.outcome() == BattleOutcome.VICTORY) {
-            // "VICTORY" here is from the enemy's (attacker's) point of view: the hero was just defeated.
-            outcome = BattleOutcome.DEFEAT;
-            addLog("You collapse in the dungeon.");
-            game.saves().deleteSave();
-            addLog("Press Enter to continue.");
-        } else {
-            outcome = BattleOutcome.ONGOING;
-        }
+        if (enemyTurn.outcome() == BattleOutcome.VICTORY) loseBattle();
+        else if (enemyTurn.outcome() == BattleOutcome.DEFEAT) winBattle();
+        else outcome = BattleOutcome.ONGOING;
+    }
+
+    private void winBattle() {
+        outcome = BattleOutcome.VICTORY;
+        int levelBefore = session.hero.level, healthBefore = session.hero.health;
+        for (String message : session.defeatEnemy(enemy)) addLog(message);
+        if (session.hero.level > levelBefore) game.sounds().schedule(this, SoundCue.POWER_UP, .85f);
+        if (session.hero.health > healthBefore) game.sounds().schedule(this, SoundCue.HEAL, .60f);
+        game.saveGame();
+        addLog(session.hero.progression().pendingChoices > 0 ? "Level up: choose an augmentation after the animation." : "Press Enter to return to the dungeon.");
+    }
+
+    private void loseBattle() {
+        outcome = BattleOutcome.DEFEAT;
+        addLog("You collapse in the dungeon.");
+        game.deleteCurrentRunSave();
+        addLog("Press Enter to continue.");
     }
 
     private void leaveBattle() {
+        if (turnAnimationTime < TURN_ANIMATION_DURATION || outcome == BattleOutcome.ONGOING) return;
+        if (outcome == BattleOutcome.VICTORY && session.hero.progression().pendingChoices > 0) {
+            mouseUi.cancel(); progressionUi.openUpgrades(); return;
+        }
         if (outcome == BattleOutcome.DEFEAT) {
             game.showGameOver();
         } else {
@@ -312,6 +312,7 @@ public final class CombatScreen extends AbstractGameScreen {
         float safeDelta = Math.min(delta, 0.1f);
         time += safeDelta;
         turnAnimationTime = Math.min(TURN_ANIMATION_DURATION, turnAnimationTime + safeDelta);
+        updateUpgrades();
         ScreenUtils.clear(Palette.VOID);
         viewport.apply();
         camera.update();
@@ -320,6 +321,13 @@ public final class CombatScreen extends AbstractGameScreen {
         drawInterface();
         if (itemsVisible) drawItemsMenu();
         drawMouse();
+    }
+
+    private void updateUpgrades() {
+        if (outcome == BattleOutcome.VICTORY && session.hero.progression().pendingChoices > 0
+                && turnAnimationTime >= TURN_ANIMATION_DURATION && !progressionUi.upgrading()) {
+            mouseUi.cancel(); progressionUi.openUpgrades();
+        }
     }
 
     private void drawArena() {
@@ -396,6 +404,8 @@ public final class CombatScreen extends AbstractGameScreen {
                 + "   EN " + session.hero.mana + "/" + session.hero.maxMana, 125f, 558f, Palette.MUTED);
         UiRenderer.text(game.batch(), game.mediumFont(), enemy.type.displayName(), 815f, 575f, Palette.TEXT);
         UiRenderer.text(game.batch(), game.font(), "HP " + enemy.health + "/" + enemy.maxHealth, 815f, 558f, Palette.MUTED);
+        UiRenderer.wrappedText(game.batch(), game.font(), engine.effects(session.hero).summary(), 100, 456, 440, Palette.BLUE_LIGHT);
+        UiRenderer.wrappedText(game.batch(), game.font(), engine.effects(enemy).summary(), 790, 456, 440, Palette.GOLD);
         game.batch().end();
     }
 
@@ -423,7 +433,7 @@ public final class CombatScreen extends AbstractGameScreen {
             logY -= 19f;
         }
         if (outcome == BattleOutcome.ONGOING) {
-            UiRenderer.text(game.batch(), game.font(), "Click action | W/S: select | Enter / 1-5: act | Esc: run",
+            UiRenderer.text(game.batch(), game.font(), "Click action | W/S: select | 1-4: act | L: skills | Esc: run",
                     550f, 34f, Palette.MUTED);
         } else {
             UiRenderer.text(game.batch(), game.mediumFont(), "Click Continue or press Enter", 760f, 38f, Palette.GOLD);

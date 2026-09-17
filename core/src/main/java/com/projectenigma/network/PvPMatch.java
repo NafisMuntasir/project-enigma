@@ -47,6 +47,15 @@ public final class PvPMatch {
      * engine itself rejects the action (e.g. not enough mana).
      */
     public synchronized PvPBattleState applyAction(int playerIndex, BattleAction action) {
+        return apply(playerIndex, action, null);
+    }
+
+    public synchronized PvPBattleState applySkill(int playerIndex, com.projectenigma.model.Skill skill) {
+        if (skill == null) return snapshot(single("Unknown skill."));
+        return apply(playerIndex, null, skill);
+    }
+
+    private PvPBattleState apply(int playerIndex, BattleAction action, com.projectenigma.model.Skill skill) {
         if (status != MatchStatus.IN_PROGRESS) {
             return snapshot(single("The match is not currently accepting actions."));
         }
@@ -59,7 +68,8 @@ public final class PvPMatch {
 
         Hero attacker = playerIndex == 0 ? hostHero : guestHero;
         Hero defender = playerIndex == 0 ? guestHero : hostHero;
-        TurnResult result = engine.resolve(attacker, defender, action);
+        if (skill == null && action == null) return snapshot(single("Unknown action."));
+        TurnResult result = skill == null ? engine.resolve(attacker, defender, action) : engine.resolveSkill(attacker, defender, skill);
         List<String> log = capped(result.messages());
 
         if (!result.actionAccepted()) {
@@ -124,7 +134,7 @@ public final class PvPMatch {
     }
 
     private PvPBattleState snapshot(List<String> log) {
-        return new PvPBattleState(HeroSnapshot.of(hostHero), HeroSnapshot.of(guestHero),
+        return new PvPBattleState(HeroSnapshot.of(hostHero, guestHero, engine), HeroSnapshot.of(guestHero, hostHero, engine),
                 currentTurn, outcome, status, log);
     }
 

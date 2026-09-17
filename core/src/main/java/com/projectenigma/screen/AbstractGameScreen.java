@@ -13,6 +13,14 @@ public abstract class AbstractGameScreen implements Screen {
     protected final ProjectEnigmaGame game;
     private InputProcessor inputProcessor;
     protected MouseUi mouseUi;
+    protected ProgressionOverlay progressionUi;
+
+    protected final void useProgression(ProgressionOverlay overlay) {
+        progressionUi = overlay;
+        inputProcessor = new InputMultiplexer(overlay, inputProcessor);
+    }
+
+    protected final boolean progressionVisible() { return progressionUi != null && progressionUi.visible(); }
 
     protected final MouseUi useMouse(Viewport viewport) {
         mouseUi = new MouseUi(viewport);
@@ -21,7 +29,9 @@ public abstract class AbstractGameScreen implements Screen {
         return mouseUi;
     }
 
-    protected final void drawMouse() { mouseUi.draw(game); }
+    protected final void drawMouse() {
+        if (progressionVisible()) progressionUi.draw(); else mouseUi.draw(game);
+    }
 
     protected AbstractGameScreen(ProjectEnigmaGame game) {
         this.game = game;
@@ -40,6 +50,7 @@ public abstract class AbstractGameScreen implements Screen {
 
     @Override
     public void hide() {
+        if (progressionUi != null) progressionUi.cancelPointer();
         game.sounds().cancel(this);
         if (mouseUi != null) mouseUi.cancel();
         if (Gdx.graphics != null) Gdx.graphics.setSystemCursor(Cursor.SystemCursor.Arrow);
@@ -50,6 +61,7 @@ public abstract class AbstractGameScreen implements Screen {
 
     @Override
     public void pause() {
+        if (progressionUi != null) progressionUi.cancelPointer();
         game.sounds().cancel(this);
         if (mouseUi != null) mouseUi.cancel();
     }

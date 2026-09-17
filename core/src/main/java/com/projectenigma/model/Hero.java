@@ -15,6 +15,12 @@ public class Hero implements Combatant {
     public int defense = 7;
     public int potions = 3;
     public int gold = 0;
+    public Progression progression = new Progression();
+
+    public Progression progression() {
+        if (progression == null) progression = new Progression();
+        return progression;
+    }
 
     /** Picked-up consumables and spare equipment. Persisted with the run. */
     public ArrayList<Item> inventory = new ArrayList<>();
@@ -44,7 +50,8 @@ public class Hero implements Combatant {
 
     public int heal(int amount) {
         int before = health;
-        health = Math.min(maxHealth, health + Math.max(0, amount));
+        health = Math.min(maxHealth, health + Math.round(Math.max(0, amount)
+                * (1 + .1f * progression().rank(PassiveUpgrade.HEALING))));
         return health - before;
     }
 
@@ -60,6 +67,7 @@ public class Hero implements Combatant {
         while (experience >= experienceForNextLevel()) {
             experience -= experienceForNextLevel();
             level++;
+            progression().pendingChoices++;
             int healthIncrease = heroClass == HeroClass.WARRIOR || heroClass == HeroClass.GRAPPLER ? 14 : 10;
             int manaIncrease = heroClass == HeroClass.MAGE || heroClass == HeroClass.CLERIC ? 4 : 2;
             maxHealth += healthIncrease;
@@ -233,13 +241,14 @@ public class Hero implements Combatant {
 
     @Override
     public int criticalChance() {
-        return switch (heroClass) {
+        int base = switch (heroClass) {
             case WARRIOR -> 10;
             case MAGE -> 12;
             case THIEF -> 24;
             case GRAPPLER -> 16;
             case CLERIC -> 12;
         };
+        return Math.min(50, base + 3 * progression().rank(PassiveUpgrade.CRITICAL));
     }
 
     @Override

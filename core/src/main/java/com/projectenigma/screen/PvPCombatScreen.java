@@ -17,6 +17,7 @@ import com.projectenigma.audio.SoundCue;
 import com.projectenigma.audio.CombatAudio;
 import com.projectenigma.model.ActionAvailability;
 import com.projectenigma.model.HeroClass;
+import com.projectenigma.model.Skill;
 import com.projectenigma.network.HeroSnapshot;
 import com.projectenigma.network.MatchStatus;
 import com.projectenigma.network.PvPBattleState;
@@ -104,6 +105,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
                     }
                     return true;
                 }
+                if (keycode == Input.Keys.L) { openSkills(); return true; }
                 if (state.currentTurn() != localPlayerIndex) {
                     return false; // not our turn; only Esc-during-reconnect and end-of-match are handled above
                 }
@@ -145,6 +147,30 @@ public final class PvPCombatScreen extends AbstractGameScreen
                 .disabled(() -> actionAnimationTime < ACTION_ANIMATION_DURATION ? "Finishing animation..." : "");
         mouseUi.add("Abandon", 130, 80, 270, 52, this::abandon)
                 .when(() -> state.status() != MatchStatus.FINISHED && reconnecting());
+        mouseUi.add("Skills [L]", 347, 42, 145, 48, this::openSkills)
+                .when(() -> state.status() == MatchStatus.IN_PROGRESS && !reconnecting());
+        useProgression(new ProgressionOverlay(game, viewport, () -> localSnapshot().displayHero(), () -> false,
+                this::skillReason, this::submitSkill, () -> submitAction(BattleAction.SKILL),
+                () -> actionReason(BattleAction.SKILL), () -> {}));
+    }
+
+    private HeroSnapshot localSnapshot() { return localPlayerIndex == 0 ? state.player0() : state.player1(); }
+    private void openSkills() {
+        if (state.status() != MatchStatus.IN_PROGRESS || reconnecting()) return;
+        mouseUi.cancel(); progressionUi.openSkills();
+    }
+    private String skillReason(Skill skill) {
+        String blocked = actionReason(BattleAction.ATTACK);
+        if (!blocked.isEmpty()) return blocked;
+        var skills = localSnapshot().skills();
+        return skills == null || skills.reasons() == null ? "Unlock skills in a progression run." : skills.reasons().getOrDefault(skill.name(), "Skill unavailable.");
+    }
+    private void submitSkill(Skill skill) {
+        String blocked = skillReason(skill);
+        if (!blocked.isEmpty()) { addLog(blocked); return; }
+        startActionAnimation(localPlayerIndex, BattleAction.SKILL);
+        if (isHost) { applyState(match.applySkill(localPlayerIndex, skill)); game.pvpServer().broadcast(state); }
+        else { awaitingHost = true; pendingAction = BattleAction.SKILL; game.pvpClient().sendSkill(skill); }
     }
 
     private boolean reconnecting() { return disconnectedLocally || state.status() == MatchStatus.WAITING_FOR_RECONNECT; }
@@ -200,6 +226,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
         if (!suppressSnapshotAudio) CombatAudio.queue(game.sounds(), this, CombatAudio.between(state, newState), 0);
         suppressSnapshotAudio = false;
         this.state = newState;
+        if (progressionUi != null && (newState.status() != MatchStatus.IN_PROGRESS || disconnectedLocally)) progressionUi.close();
         for (String line : newState.log()) {
             addLog(line);
         }
@@ -246,6 +273,12 @@ public final class PvPCombatScreen extends AbstractGameScreen
         game.pvpServer().broadcast(state);
     }
 
+    @Override public void onSkillReceived(Skill skill) {
+        applyState(match.applySkill(1, skill));
+        startActionAnimation(1, BattleAction.SKILL);
+        game.pvpServer().broadcast(state);
+    }
+
     @Override
     public void onAbandon() {
         applyState(match.abandon());
@@ -264,6 +297,7 @@ public final class PvPCombatScreen extends AbstractGameScreen
 
     @Override
     public void onDisconnected() {
+        progressionUi.close();
         game.sounds().cancel(this);
         suppressSnapshotAudio = true;
         awaitingHost = false;
@@ -428,6 +462,8 @@ public final class PvPCombatScreen extends AbstractGameScreen
                 815f, 575f, !myTurn ? Palette.ACCENT : Palette.TEXT);
         UiRenderer.text(game.batch(), game.font(), "HP " + opponent.health() + "/" + opponent.maxHealth()
                 + "   EN " + opponent.mana() + "/" + opponent.maxMana(), 815f, 558f, Palette.MUTED);
+        if (me.skills() != null) UiRenderer.wrappedText(game.batch(), game.font(), me.skills().status(), 100, 456, 440, Palette.BLUE_LIGHT);
+        if (opponent.skills() != null) UiRenderer.wrappedText(game.batch(), game.font(), opponent.skills().status(), 790, 456, 440, Palette.GOLD);
         game.batch().end();
     }
 

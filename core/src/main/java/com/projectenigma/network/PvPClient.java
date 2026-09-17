@@ -98,6 +98,8 @@ public final class PvPClient implements AutoCloseable {
         send(new PvPActionPacket(action));
     }
 
+    public void sendSkill(com.projectenigma.model.Skill skill) { send(new PvPSkillPacket(skill)); }
+
     public void sendAbandon() {
         if (isConnected()) {
             send(new PvPAbandonPacket("Player abandoned the match."));

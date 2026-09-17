@@ -310,6 +310,75 @@ class MouseIntegrationTest {
         assertEquals(2, playedSounds.stream().filter(c -> c == SoundCue.HEAL).count());
     }
 
+    @Test void victoryOpensUpgradeAfterAnimationAndPersistsExactlyOneSelection() throws Exception {
+        dungeon(); Hero hero = game.session().hero; hero.experience = 44; hero.attack = 999;
+        game.startCombat(new DungeonEnemy(4, EnemyType.CAVE_SLIME, 32, 20, 1));
+        CombatScreen screen = (CombatScreen)game.getScreen();
+        click(100, 130);
+        assertEquals(1, hero.progression().pendingChoices);
+        invoke(screen, "updateUpgrades", new Class<?>[0]);
+        assertFalse(progression(screen).visible());
+        set(screen, "turnAnimationTime", 2f);
+        invoke(screen, "updateUpgrades", new Class<?>[0]);
+        assertTrue(progression(screen).upgrading());
+        input.get().keyDown(Input.Keys.ESCAPE); assertTrue(progression(screen).visible());
+        click(300, 510); click(790, 150);
+        assertTrue(hero.progression().equipped(Skill.DISRUPTION_PULSE));
+        assertEquals(0, hero.progression().pendingChoices); assertFalse(progression(screen).visible());
+        click(790, 150); assertEquals(1, hero.progression().choicesMade);
+        assertTrue(game.saves().load().hero.progression().unlocked(Skill.DISRUPTION_PULSE));
+        click(260, 105); assertInstanceOf(DungeonScreen.class, game.getScreen());
+    }
+
+    @Test void pendingChoicesBlockMovementAndSurviveContinueUntilAllAreChosen() throws Exception {
+        dungeon(); Hero hero = game.session().hero; hero.gainExperience(120); game.saveGame();
+        game.continueGame(); DungeonScreen screen = (DungeonScreen)game.getScreen();
+        int x = game.session().playerX, y = game.session().playerY;
+        assertTrue(progression(screen).upgrading());
+        input.get().keyDown(Input.Keys.W); input.get().keyDown(Input.Keys.ESCAPE);
+        assertEquals(x, game.session().playerX); assertEquals(y, game.session().playerY);
+        click(790, 150); assertEquals(1, game.session().hero.progression().pendingChoices);
+        assertTrue(progression(screen).upgrading());
+        click(790, 150); assertEquals(0, game.session().hero.progression().pendingChoices);
+        assertFalse(progression(screen).visible());
+    }
+
+    @Test void skillMenuActivatesShockAndLocksRepeatedCombatInput() throws Exception {
+        dungeon(); Hero hero = game.session().hero; hero.level = 3;
+        hero.progression().unlocked.add(Skill.ARC_DISCHARGE.name()); hero.progression().equip(Skill.ARC_DISCHARGE, 0);
+        DungeonEnemy enemy = new DungeonEnemy(4, EnemyType.CAVE_SLIME, 32, 20, 8);
+        game.startCombat(enemy); int hp = hero.health, en = hero.mana, enemyHp = enemy.health;
+        input.get().keyDown(Input.Keys.L); assertTrue(progression(game.getScreen()).visible());
+        click(300, 455); click(760, 150); // Arc Discharge, then Use.
+        assertFalse(progression(game.getScreen()).visible());
+        assertEquals(hp, hero.health); assertEquals(en - 5, hero.mana); assertTrue(enemy.health < enemyHp);
+        int after = enemy.health; click(100, 130); assertEquals(after, enemy.health);
+    }
+
+    @Test void dotVictoryUsesExistingRewardAndUpgradeFlow() throws Exception {
+        dungeon(); Hero hero = game.session().hero; hero.experience = 44;
+        hero.progression().unlocked.add(Skill.THERMAL_OVERLOAD.name()); hero.progression().equip(Skill.THERMAL_OVERLOAD, 0);
+        DungeonEnemy enemy = new DungeonEnemy(4, EnemyType.CAVE_SLIME, 32, 20, 1); enemy.health = 9; enemy.defense = 20;
+        game.startCombat(enemy); int hp = hero.health;
+        input.get().keyDown(Input.Keys.L); click(300, 400); click(760, 150);
+        assertEquals(BattleOutcome.VICTORY, get(game.getScreen(), "outcome"));
+        assertEquals(2, hero.level); assertEquals(1, hero.progression().pendingChoices);
+        assertEquals(hero.maxHealth, hero.health); assertTrue(hero.health >= hp);
+    }
+
+    @Test void raceDeathWithNewStatusSystemNeverDeletesSoloSave() throws Exception {
+        dungeon(); game.saveGame(); set(game, "raceSessionActive", true);
+        Hero hero = game.session().hero; hero.health = 1;
+        game.startCombat(new DungeonEnemy(4, EnemyType.FLOOR_WARDEN, 32, 20, 8));
+        click(100, 130); assertEquals(BattleOutcome.DEFEAT, get(game.getScreen(), "outcome"));
+        assertTrue(game.saves().hasSave());
+    }
+
+    private ProgressionOverlay progression(Screen screen) throws Exception {
+        Field field = AbstractGameScreen.class.getDeclaredField("progressionUi"); field.setAccessible(true);
+        return (ProgressionOverlay)field.get(screen);
+    }
+
     private void advanceAudio(float seconds) {
         for (int i = 0; i < Math.round(seconds * 10); i++) game.sounds().update(.1f);
     }

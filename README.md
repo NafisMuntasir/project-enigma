@@ -20,7 +20,7 @@ See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art p
 - A distant, reachable staircase on every floor
 - Fog of exploration, collision, camera following, chests, loot, and enemies
 - Five sci-fi operatives—Sentinel, Hacker, Sniper, Enforcer, and Bio-Medic—with distinct statistics and tech skills
-- Turn-based Attack, Tech Skill, Guard, Potion, and Run actions
+- Turn-based Attack, Tech Skill, Guard, Items, general Skills, and Run actions (PvP retains Potion)
 - Enemy scaling, bosses every fifth floor, experience, levels, gold, and drops
 - Four utopian sci-fi enemy archetypes: Recon Drone, Aegis Robot, Helix Cyborg, and Enhanced Warden
 - Inventory/status overlay and field potion use
@@ -33,6 +33,20 @@ See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art p
 - Idle, attack, skill, guard, hurt, and defeat battle animations
 - Matching 1280x720 rooftop menu and atrium battle backgrounds
 - Pure Java model tests for dungeon connectivity, placement, and combat rules
+
+## Level-up upgrades and general skills
+
+Every newly gained level now grants one required, saved augmentation choice in
+addition to the original class stat bonuses. Choose a passive upgrade or unlock
+one of 14 sci-fi skills. Press **L** or click **Skills** in the dungeon or combat
+to inspect locked/unlocked skills, keep the existing class technique, and use a
+general skill. Equip up to three general skills while exploring.
+
+Mouse and keyboard work throughout the new menus. Combat uses turn cooldowns,
+interrupt resistance, damage-over-time and temporary defensive/support effects.
+Rush progression transfers into host-authoritative PvP. See
+[Progression and Skills](PROGRESSION_AND_SKILLS.md) for controls, the full skill
+catalogue, balance values, save/network behavior and extension points.
 
 ## Custom operative animations
 
@@ -155,7 +169,7 @@ skill, encounter, power-up.
 - **Operatives:** click a card, then Begin (solo) or Ready (PvP). Back cancels; Ready locks the selection while waiting for the opponent.
 - **Explore:** click an explored floor tile to follow the blue route. Paths go around walls and avoid enemy tiles. Click again to retarget; right-click stops. Unreachable clicks cancel the route and explain why.
 - **Interact:** click a chest to approach and open it; click a visible enemy to approach and fight. Click stairs to approach, then click Descend to change floors.
-- **HUD:** Inventory, Use Potion, Pause, and contextual Descend buttons are clickable. Inventory has Use Potion and Close; pause has Resume, Save Game, Main Menu, and Quit (Race Mode's pause menu is just Resume and Abandon Race, since a race session never saves).
+- **HUD:** Items, Equipment, Skills, Pause, and contextual Descend buttons are clickable. Use consumables from Items; pause has Resume, Save Game, Main Menu, and Quit (Race Mode's pause menu is just Resume and Abandon Race, since a race session never saves).
 - **Combat:** click an action; hover for descriptions and unavailable-action explanations. Inputs lock during animations and while a PvP request awaits the host. Click Continue after solo combat or Main Menu after PvP.
 - **Multiplayer:** click Host or Join. Toggle "Race Mode" first to explore-then-fight instead of an immediate duel — see below. Click the address field to edit an IPv4 address; Ctrl+A selects all, Ctrl+V or Paste inserts the clipboard, and Connect joins. Cancel stops hosting/connecting; Abandon exits a disconnected match.
 - **Focus:** keyboard movement, overlays, window focus loss, and screen changes cancel mouse travel. UI and letterbox clicks never move the operative. All previous keyboard shortcuts remain available.
@@ -189,8 +203,9 @@ Race" leaves at any point. See `DESIGN.md` §10 for the full design.
 | --- | --- |
 | Move | `WASD` or arrow keys |
 | Descend stairs | `E` or `Enter` while on the stairs |
-| Inventory | `I` or `Tab` |
-| Drink potion | `P` |
+| Items | `I` or `Tab` |
+| Equipment | `K` |
+| Skills / augmentations | `L` |
 | Pause/save/menu | `Esc` |
 
 ### Combat

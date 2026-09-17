@@ -24,13 +24,16 @@ import java.io.Serializable;
  * transfer, which the host sanity-clamps on arrival via {@link #toHero()}.
  */
 public record HeroLoadout(HeroClass heroClass, int level, int maxHealth, int health,
-                           int maxMana, int mana, int attack, int defense, int potions)
+                           int maxMana, int mana, int attack, int defense, int potions, ProgressionSnapshot progression)
         implements Serializable {
     private static final long serialVersionUID = 1L;
+    public HeroLoadout(HeroClass heroClass, int level, int maxHealth, int health, int maxMana, int mana, int attack, int defense, int potions) {
+        this(heroClass, level, maxHealth, health, maxMana, mana, attack, defense, potions, null);
+    }
 
     public static HeroLoadout of(Hero hero) {
         return new HeroLoadout(hero.heroClass, hero.level, hero.maxHealth, hero.health,
-                hero.maxMana, hero.mana, hero.attack(), hero.defense(), hero.potions);
+                hero.maxMana, hero.mana, hero.attack(), hero.defense(), hero.potions, ProgressionSnapshot.of(hero));
     }
 
     /**
@@ -44,8 +47,11 @@ public record HeroLoadout(HeroClass heroClass, int level, int maxHealth, int hea
      */
     public Hero toHero() {
         Hero hero = new Hero(heroClass);
-        hero.level = Math.max(1, level);
+        hero.level = Math.max(1, Math.min(100, level));
+        if (progression != null) hero.progression = progression.restore(hero.level);
         hero.maxHealth = reasonableCap(maxHealth, heroClass.health(), hero.level);
+        hero.maxHealth = Math.max(hero.maxHealth, Math.min(maxHealth,
+                heroClass.health() + (hero.level - 1) * MAX_PER_LEVEL_GAIN + 12 * hero.progression().rank(com.projectenigma.model.PassiveUpgrade.VITALITY)));
         hero.health = clampAtLeastOne(health, hero.maxHealth);
         hero.maxMana = reasonableCap(maxMana, heroClass.mana(), hero.level);
         hero.mana = Math.max(0, Math.min(hero.maxMana, mana));

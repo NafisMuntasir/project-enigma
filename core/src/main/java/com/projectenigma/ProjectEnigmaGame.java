@@ -220,6 +220,14 @@ public final class ProjectEnigmaGame extends Game {
         switchScreen(new GameOverScreen(this));
     }
 
+    public void deleteCurrentRunSave() { if (!raceSessionActive) saveService.deleteSave(); }
+
+    private boolean raceEndRequested;
+    public void progressionSelectionCompleted() {
+        if (raceEndRequested && session != null && session.hero.progression().pendingChoices == 0)
+            completeExplorationAndSendReady();
+    }
+
     public void saveGame() {
         if (raceSessionActive) {
             // A Race-to-PvP exploration session is never the player's real
@@ -461,6 +469,7 @@ public final class ProjectEnigmaGame extends Game {
     private void beginRaceExploration(GameSession raceSession) {
         session = raceSession;
         raceSessionActive = true;
+        raceEndRequested = false;
         raceState = RaceState.EXPLORING;
         raceSecondsRemaining = raceDurationSeconds;
         raceSyncCountdown = RACE_TIMER_SYNC_INTERVAL_SECONDS;
@@ -521,6 +530,8 @@ public final class ProjectEnigmaGame extends Game {
         if (raceState != RaceState.EXPLORING) {
             return;
         }
+        raceEndRequested = true;
+        if (session.hero.isAlive() && session.hero.progression().pendingChoices > 0) return;
         raceState = RaceState.WAITING_FOR_PVP;
         if (pvpHosting) {
             raceHostFinished = true;

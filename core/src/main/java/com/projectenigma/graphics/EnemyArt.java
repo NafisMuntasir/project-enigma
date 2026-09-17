@@ -9,7 +9,7 @@ public final class EnemyArt {
     public static final KeyedSpriteAtlas.Layout WORLD = new KeyedSpriteAtlas.Layout(4, 4, 96, 96, 1, 12);
     public static final KeyedSpriteAtlas.Layout BATTLE = new KeyedSpriteAtlas.Layout(6, 4, 256, 192, 1, 16);
     public static final KeyedSpriteAtlas.Layout CHEST = new KeyedSpriteAtlas.Layout(2, 2, 64, 96, 1, 12);
-    public static final int CHEST_CLOSED_HEIGHT = 32;
+    public static final int CHEST_CLOSED_HEIGHT = 38;
     public static final float CHEST_FRAME_DURATION = .12f;
 
     public record Profile(String id, int worldHeight, int battleHeight) {

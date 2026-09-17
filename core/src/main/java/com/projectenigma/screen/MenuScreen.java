@@ -157,15 +157,15 @@ public final class MenuScreen extends AbstractGameScreen {
 
         game.batch().begin();
         UiRenderer.centeredText(game.batch(), game.titleFont(), "CONTROLS", 640f, 560f, Palette.TEXT);
-        String controls = "MOUSE\nClick floor: move / Right-click: stop\nClick chest or enemy: approach and interact\nUse visible buttons for menus and actions\n\nKEYBOARD\n"
-                + "WASD / Arrow Keys  -  Move\n"
-                + "E / Enter          -  Use the stairs\n"
-                + "I / Tab            -  Inventory\n"
-                + "Esc                -  Pause\n\n"
-                + "COMBAT\n"
-                + "W/S / Arrow Keys   -  Select an action\n"
-                + "1-5                -  Action hotkeys\n"
-                + "Enter / Space      -  Confirm";
+        String controls = "EXPLORE\nClick floor: move / Right-click: stop\nClick chest or enemy: approach and interact\n"
+                + "WASD / arrows: move  |  E / Enter: stairs\n"
+                + "I / Tab: Items  |  K: Equipment  |  Esc: Pause\n\n"
+                + "COMBAT\n1-4: solo actions  |  1-5: PvP actions  |  I: solo Items\n"
+                + "W/S: select  |  Enter / Space: confirm\n\n"
+                + "SKILLS / UPGRADES\nL: Skills  |  Tab: General / Passives  |  T: class tech\n"
+                + "W/S: select  |  Left/Right: page  |  Enter: use / choose\n"
+                + "1-3: equip a skill slot while exploring\n"
+                + "Level up: select one required upgrade per level";
         UiRenderer.wrappedText(game.batch(), game.font(), controls, 310f, 500f, 680f, Palette.TEXT);
         UiRenderer.centeredText(game.batch(), game.font(), "", 640f, 145f, Palette.MUTED);
         game.batch().end();

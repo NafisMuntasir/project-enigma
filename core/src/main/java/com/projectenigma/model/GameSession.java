@@ -63,6 +63,7 @@ public class GameSession {
     }
 
     public void rebuildTransientState() {
+        hero.progression().normalize();
         if (floorNumber < 1) {
             floorNumber = 1;
         }
@@ -194,6 +195,7 @@ public class GameSession {
         playerX = x;
         playerY = y;
         stepsTaken++;
+        hero.progression().moved();
     }
 
     public boolean isAtExit() {

@@ -18,6 +18,7 @@ import com.projectenigma.model.DungeonChest;
 import com.projectenigma.model.DungeonEnemy;
 import com.projectenigma.model.DungeonPickup;
 import com.projectenigma.model.Item;
+import com.projectenigma.model.Skill;
 import com.projectenigma.model.DungeonMap;
 import com.projectenigma.model.GameSession;
 import com.projectenigma.model.TileType;
@@ -110,6 +111,7 @@ public final class DungeonScreen extends AbstractGameScreen {
                     }
                     return true;
                 }
+                if (keycode == Input.Keys.L && !uiLocked()) { openSkills(); return true; }
                 if (pauseVisible) {
                     return handlePauseInput(keycode);
                 }
@@ -148,7 +150,7 @@ public final class DungeonScreen extends AbstractGameScreen {
                 if (direction != null) {
                     cancelRoute();
                     tryMove(direction[0], direction[1]);
-                    moveRepeatTimer = 0.23f;
+                    moveRepeatTimer = 0.23f / session.hero.progression().movementMultiplier();
                     return true;
                 }
                 return false;
@@ -202,10 +204,29 @@ public final class DungeonScreen extends AbstractGameScreen {
         // has ended and this screen is fully frozen waiting on the other
         // player (Esc already does the same thing -- see keyDown above).
         mouseUi.add("Abandon Race", 540, 275, 200, 44, game::abandonRace).when(this::isWaitingForOpponent);
+        mouseUi.add("Skills [L]", 722, 18, 165, 44, this::openSkills).when(() -> !uiLocked());
+        useProgression(new ProgressionOverlay(game, uiViewport, () -> session.hero, () -> true,
+                skill -> session.hero.progression().fieldReason(session.hero, skill), this::useFieldSkill,
+                () -> {}, () -> "Class tech: 3 EN; use during combat.",
+                () -> { game.saveGame(); game.progressionSelectionCompleted(); }));
+        if (session.hero.progression().pendingChoices > 0) progressionUi.openUpgrades();
     }
 
     /** True whenever normal exploration input (movement, HUD buttons, world clicks) should be suppressed. */
-    private boolean uiLocked() { return pauseVisible || inventoryVisible || equipmentVisible || isWaitingForOpponent(); }
+    private void openSkills() {
+        if (uiLocked()) return;
+        cancelRoute(); mouseUi.cancel(); progressionUi.openSkills();
+    }
+
+    private void useFieldSkill(Skill skill) {
+        if (session.hero.progression().useField(session.hero, skill)) {
+            game.sounds().play(SoundCue.SKILL);
+            game.sounds().schedule(this, skill == Skill.NANITE_RESTORATION ? SoundCue.HEAL : SoundCue.POWER_UP, .15f);
+            setNotice(skill.title + " activated."); game.saveGame();
+        }
+    }
+
+    private boolean uiLocked() { return progressionVisible() || pauseVisible || inventoryVisible || equipmentVisible || isWaitingForOpponent(); }
 
     private boolean isWaitingForOpponent() { return raceMode && game.isRaceWaitingForOpponent(); }
 
@@ -260,7 +281,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         tryMove(next.x() - session.playerX, next.y() - session.playerY);
         if (game.getScreen() != this) return;
         if (route.isEmpty()) { destination = null; engagedEnemy = null; }
-        routeTimer = HELD_MOVE_DELAY;
+        routeTimer = HELD_MOVE_DELAY / session.hero.progression().movementMultiplier();
     }
 
     private GridPoint pointerGoal(float x, float y) {
@@ -536,7 +557,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (direction != null) {
             cancelRoute();
             tryMove(direction[0], direction[1]);
-            moveRepeatTimer = HELD_MOVE_DELAY;
+            moveRepeatTimer = HELD_MOVE_DELAY / session.hero.progression().movementMultiplier();
         }
     }
 
@@ -548,13 +569,16 @@ public final class DungeonScreen extends AbstractGameScreen {
     @Override
     public void render(float delta) {
         float safeDelta = Math.min(delta, 0.1f);
-        worldAnimationTime += safeDelta;
+        if (session.hero.progression().pendingChoices > 0 && !progressionUi.upgrading()) {
+            cancelRoute(); mouseUi.cancel(); progressionUi.openUpgrades();
+        }
+        if (!progressionVisible()) worldAnimationTime += safeDelta;
         updateHeldMovement(safeDelta);
         if (game.getScreen() != this) return;
         updateRoute(safeDelta);
         if (game.getScreen() != this) return;
-        renderedPlayerX = MathUtils.lerp(renderedPlayerX, session.playerX + 0.5f, Math.min(1f, safeDelta * 14f));
-        renderedPlayerY = MathUtils.lerp(renderedPlayerY, session.playerY + 0.5f, Math.min(1f, safeDelta * 14f));
+        renderedPlayerX = MathUtils.lerp(renderedPlayerX, session.playerX + 0.5f, Math.min(1f, safeDelta * 14f * session.hero.progression().movementMultiplier()));
+        renderedPlayerY = MathUtils.lerp(renderedPlayerY, session.playerY + 0.5f, Math.min(1f, safeDelta * 14f * session.hero.progression().movementMultiplier()));
         if (noticeTime > 0f) {
             noticeTime -= safeDelta;
         } else {
