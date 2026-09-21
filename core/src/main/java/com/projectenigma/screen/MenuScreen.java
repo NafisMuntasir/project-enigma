@@ -160,7 +160,7 @@ public final class MenuScreen extends AbstractGameScreen {
         String controls = "EXPLORE\nClick floor: move / Right-click: stop\nClick chest or enemy: approach and interact\n"
                 + "WASD / arrows: move  |  E / Enter: stairs\n"
                 + "I / Tab: Items  |  K: Equipment  |  Esc: Pause\n\n"
-                + "COMBAT\n1-4: solo actions  |  1-5: PvP actions  |  I: solo Items\n"
+                + "COMBAT\n1-4: combat actions  |  I: Items  |  L: Skills\n"
                 + "W/S: select  |  Enter / Space: confirm\n\n"
                 + "SKILLS / UPGRADES\nL: Skills  |  Tab: General / Passives  |  T: class tech\n"
                 + "W/S: select  |  Left/Right: page  |  Enter: use / choose\n"

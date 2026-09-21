@@ -37,6 +37,7 @@ public final class Lwjgl3Launcher {
         configuration.setIdleFPS(30);
         ProjectEnigmaGame game = new ProjectEnigmaGame(args);
         configuration.setWindowListener(new Lwjgl3WindowAdapter() {
+            @Override public void focusGained() { if (game.getScreen() != null) game.getScreen().resume(); }
             @Override public void focusLost() { if (game.getScreen() != null) game.getScreen().pause(); }
         });
         new Lwjgl3Application(game, configuration);

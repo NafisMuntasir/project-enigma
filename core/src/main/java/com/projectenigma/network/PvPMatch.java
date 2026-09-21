@@ -35,6 +35,9 @@ public final class PvPMatch {
     private MatchStatus status = MatchStatus.IN_PROGRESS;
 
     public PvPMatch(Hero hostHero, Hero guestHero, long seed) {
+        hostHero.migrateLegacyPotionsToItems();
+        guestHero.migrateLegacyPotionsToItems();
+        hostHero.guarding = guestHero.guarding = false;
         this.hostHero = hostHero;
         this.guestHero = guestHero;
         this.engine = new BattleEngine(seed);
@@ -47,15 +50,20 @@ public final class PvPMatch {
      * engine itself rejects the action (e.g. not enough mana).
      */
     public synchronized PvPBattleState applyAction(int playerIndex, BattleAction action) {
-        return apply(playerIndex, action, null);
+        return apply(playerIndex, action, null, null);
     }
 
     public synchronized PvPBattleState applySkill(int playerIndex, com.projectenigma.model.Skill skill) {
         if (skill == null) return snapshot(single("Unknown skill."));
-        return apply(playerIndex, null, skill);
+        return apply(playerIndex, null, skill, null);
     }
 
-    private PvPBattleState apply(int playerIndex, BattleAction action, com.projectenigma.model.Skill skill) {
+    public synchronized PvPBattleState applyItem(int playerIndex, String itemId) {
+        if (itemId == null) return snapshot(single("Unknown item."));
+        return apply(playerIndex, null, null, itemId);
+    }
+
+    private PvPBattleState apply(int playerIndex, BattleAction action, com.projectenigma.model.Skill skill, String itemId) {
         if (status != MatchStatus.IN_PROGRESS) {
             return snapshot(single("The match is not currently accepting actions."));
         }
@@ -68,8 +76,11 @@ public final class PvPMatch {
 
         Hero attacker = playerIndex == 0 ? hostHero : guestHero;
         Hero defender = playerIndex == 0 ? guestHero : hostHero;
-        if (skill == null && action == null) return snapshot(single("Unknown action."));
-        TurnResult result = skill == null ? engine.resolve(attacker, defender, action) : engine.resolveSkill(attacker, defender, skill);
+        if (skill == null && action == null && itemId == null) return snapshot(single("Unknown action."));
+        com.projectenigma.model.Item item = itemId == null ? null : attacker.inventory.stream()
+                .filter(i -> itemId.equals(i.id) && i.isConsumable()).findFirst().orElse(null);
+        TurnResult result = itemId != null ? engine.resolveItem(attacker, defender, item)
+                : skill == null ? engine.resolve(attacker, defender, action) : engine.resolveSkill(attacker, defender, skill);
         List<String> log = capped(result.messages());
 
         if (!result.actionAccepted()) {

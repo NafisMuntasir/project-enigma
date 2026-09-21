@@ -20,7 +20,7 @@ See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art p
 - A distant, reachable staircase on every floor
 - Fog of exploration, collision, camera following, chests, loot, and enemies
 - Five sci-fi operatives—Sentinel, Hacker, Sniper, Enforcer, and Bio-Medic—with distinct statistics and tech skills
-- Turn-based Attack, Tech Skill, Guard, Items, general Skills, and Run actions (PvP retains Potion)
+- Turn-based Attack, Tech Skill, Guard, Items, general Skills, and Run actions
 - Enemy scaling, bosses every fifth floor, experience, levels, gold, and drops
 - Four utopian sci-fi enemy archetypes: Recon Drone, Aegis Robot, Helix Cyborg, and Enhanced Warden
 - Inventory/status overlay and field potion use
@@ -184,7 +184,7 @@ then explore their own independent (but identically-seeded) dungeon until
 the countdown time-bar at the top of the screen runs out. When time's up,
 the screen shows "Waiting for opponent" while the other player finishes;
 once both are done, the fight begins using the heroes each player
-actually grew (level, HP/MP, attack, defense, potions). Esc or "Abandon
+actually grew (level, HP/EN, stats, items, equipment, and skills). Esc or "Abandon
 Race" leaves at any point. See `DESIGN.md` §10 for the full design.
 
 ## Keyboard controls
@@ -280,3 +280,32 @@ for the exact atlas, animation, screen, and packaging mappings.
 
 GPL-3.0. The reference repository is also GPL-3.0; attribution is retained here
 because this project was built from its design and source review.
+
+### Shared solo / multiplayer combat
+
+The host chooses Classic or Rush; joining players automatically adopt that mode.
+Rush preserves collected items, equipped gear, permanent boosts and skill unlocks
+when the timer ends. Solo and PvP use the same combat action and Items menu:
+**1�4** for actions, **I** for Items, **L** for Skills. Item quantities and effects
+are validated by the host, including after reconnect. Both players need the
+updated build.
+
+### Enemy patrols and pursuit
+
+Enemies now patrol within two tiles of their spawn. They spot you within five
+tiles when no wall blocks sight, chase around obstacles, and initiate the normal
+battle when they reach you. They cannot stack on one another or cross walls.
+Escape beyond ten tiles and they return to their patrol area. Enemies pause with
+menus or lost window focus, and entering the dungeon after combat grants a brief
+1.25-second grace period. This also applies during Rush exploration.
+
+Tuning values live in `model/EnemyMovement.java`: patrol radius 2, detection 5,
+leash 10; patrol step 0.65 seconds and chase step 0.18 seconds. Existing movement
+sprites turn with the enemy; drones retain a small hovering motion.
+
+### Updated environment artwork
+
+Dungeon floors now use a quiet ceramic palette without colored crosses. Dark
+structural walls use continuous surfaces and illuminated edges facing walkable
+floor, including corners and narrow partitions. The generated atlas and its
+prompt are documented in `assets/utopia/tiles/ENVIRONMENT_V2.md`.

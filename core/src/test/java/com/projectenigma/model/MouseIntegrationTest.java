@@ -154,24 +154,88 @@ class MouseIntegrationTest {
         click(100, 130); input.get().keyDown(Input.Keys.NUM_1); assertEquals(after, enemy.health);
         set(screen, "turnAnimationTime", 2f); input.get().keyDown(Input.Keys.NUM_1); assertTrue(enemy.health < after);
     }
-    @Test void guestWaitsForHostEvenAfterAnimationAndLearnsPotionRejection() throws Exception {
+    @Test void guestItemRequestsWaitForHostAndAuthoritativeInventoryUpdates() throws Exception {
         PvPClient client = new PvPClient(); set(game, "pvpClient", client);
-        Hero host = new Hero(HeroClass.WARRIOR), guest = new Hero(HeroClass.MAGE); guest.health -= 20;
+        Hero host = new Hero(HeroClass.WARRIOR), guest = new Hero(HeroClass.MAGE); guest.health -= 40;
+        guest.migrateLegacyPotionsToItems();
         PvPBattleState state = new PvPBattleState(HeroSnapshot.of(host), HeroSnapshot.of(guest), 1,
                 PvPOutcome.ONGOING, MatchStatus.IN_PROGRESS, List.of());
         PvPCombatScreen screen = PvPCombatScreen.forGuest(game, state); game.setScreen(screen);
-        set(screen, "actionAnimationTime", 10f); click(100, 65);
+        click(400, 65); click(600, 500);
         assertTrue((boolean)get(screen, "awaitingHost"));
+        assertEquals(3, guest.inventory.get(0).quantity); // Guest must not consume locally.
         set(screen, "actionAnimationTime", 10f); click(100, 130);
         assertEquals(BattleAction.POTION, get(screen, "pendingAction"));
-        screen.onStateReceived(new PvPBattleState(state.player0(), state.player1(), 1, state.outcome(), state.status(), List.of("No potions remain.")));
+        guest.inventory.clear();
+        screen.onStateReceived(new PvPBattleState(state.player0(), HeroSnapshot.of(guest), 1,
+                state.outcome(), state.status(), List.of("Cannot use this item right now.")));
         assertFalse((boolean)get(screen, "awaitingHost"));
-        set(screen, "actionAnimationTime", 10f); click(100, 65);
+        set(screen, "actionAnimationTime", 10f); click(400, 65); click(600, 500);
         assertFalse((boolean)get(screen, "awaitingHost"));
-        click(100, 130); assertTrue((boolean)get(screen, "awaitingHost"));
+        input.get().keyDown(Input.Keys.ESCAPE); click(100, 130);
+        assertTrue((boolean)get(screen, "awaitingHost"));
         screen.onDisconnected(); assertFalse((boolean)get(screen, "awaitingHost"));
         click(100, 130); assertFalse((boolean)get(screen, "awaitingHost"));
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void hostModeOverridesOppositeGuestToggleAndRushInventorySurvivesTimer(boolean rush) throws Exception {
+        ProjectEnigmaGame guestGame = new ProjectEnigmaGame();
+        set(guestGame, "saveService", new SaveService());
+        try {
+            if (rush) game.hostRaceMatch(15); else game.hostPvPMatch();
+            if (rush) guestGame.joinPvPMatch("127.0.0.1"); else guestGame.joinRaceMatch("127.0.0.1");
+            pumpUntil(() -> game.getScreen() instanceof ClassSelectScreen && guestGame.getScreen() instanceof ClassSelectScreen);
+            assertEquals(rush, get(guestGame, "raceModeRequested"));
+            game.getScreen().show(); click(750, 78);
+            guestGame.getScreen().show(); click(750, 78);
+            if (rush) {
+                pumpUntil(() -> game.getScreen() instanceof DungeonScreen && guestGame.getScreen() instanceof DungeonScreen);
+                assertEquals(15, guestGame.raceDurationSeconds());
+                for (ProjectEnigmaGame player : List.of(game, guestGame)) {
+                    Hero h = player.session().hero;
+                    h.addItem(Item.energy("cell", "Cell", 7)); h.mana = 0;
+                    Item weapon = Item.weapon("gun", "Gun", "Equipment", 7); h.addItem(weapon); h.equip(h.inventory.get(h.inventory.size()-1));
+                    h.applyPermanentBoost(Item.maxHealth("boost", "Boost", 20));
+                }
+                // Test the real host timer and packet handoff, not independent manual transitions.
+                invoke(game, "tickRaceTimer", new Class<?>[]{float.class}, 16f);
+            }
+            pumpUntil(() -> game.getScreen() instanceof PvPCombatScreen && guestGame.getScreen() instanceof PvPCombatScreen);
+            PvPMatch match = (PvPMatch)get(game, "pvpMatch");
+            if (rush) {
+                assertEquals(140, match.currentState().player0().maxHealth());
+                assertEquals(140, match.currentState().player1().maxHealth());
+                assertEquals(match.currentState().player0().inventory(), match.currentState().player1().inventory());
+                PvPCombatScreen hostScreen = (PvPCombatScreen)game.getScreen();
+                hostScreen.show(); click(400, 65); click(600, 450); // Same menu: second row = energy cell.
+                pumpUntil(() -> match.currentState().currentTurn() == 1 && sameBattle((PvPCombatScreen)guestGame.getScreen(), match.currentState()));
+                PvPCombatScreen guestScreen = (PvPCombatScreen)guestGame.getScreen();
+                guestScreen.show(); set(guestScreen, "actionAnimationTime", 10f);
+                click(400, 65); click(600, 450); click(600, 450);
+                pumpUntil(() -> match.currentState().currentTurn() == 0 && sameBattle(guestScreen, match.currentState()));
+                assertEquals(7, match.currentState().player0().mana());
+                assertEquals(7, match.currentState().player1().mana());
+                assertTrue(match.currentState().player1().inventory().items().stream().noneMatch(i -> "cell".equals(i.id())));
+            }
+        } finally { guestGame.leavePvPMatch(); game.leavePvPMatch(); }
+    }
+
+    @Test void soloUsesSharedItemsMenuAndClosesWithoutSpendingATurn() throws Exception {
+        dungeon(); Hero hero = game.session().hero; hero.health -= 50;
+        game.startCombat(new DungeonEnemy(1, EnemyType.FLOOR_WARDEN, 32, 20, 3));
+        CombatScreen screen = (CombatScreen)game.getScreen();
+        assertInstanceOf(CombatMenu.class, get(screen, "combatMenu"));
+        int hp = hero.health;
+        click(400, 65); click(100, 130); // Underlying Attack is blocked.
+        assertEquals(hp, hero.health);
+        input.get().keyDown(Input.Keys.ESCAPE); assertEquals(hp, hero.health);
+        input.get().keyDown(Input.Keys.I); click(600, 500);
+        assertEquals(2, hero.inventory.get(0).quantity);
+        assertTrue(hero.health > hp);
+    }
+
     @Test void pasteAndAddressEditingAreClickable() throws Exception {
         game.showMultiplayerMenu(); click(640, 358);
         clipboard = "192.168.1.10"; click(490, 250);
@@ -372,6 +436,23 @@ class MouseIntegrationTest {
         game.startCombat(new DungeonEnemy(4, EnemyType.FLOOR_WARDEN, 32, 20, 8));
         click(100, 130); assertEquals(BattleOutcome.DEFEAT, get(game.getScreen(), "outcome"));
         assertTrue(game.saves().hasSave());
+    }
+
+    @Test void enemyContactStartsBattleButMenusAndFocusLossFreezePursuit() throws Exception {
+        DungeonScreen screen = dungeon();
+        DungeonEnemy enemy = new DungeonEnemy(5, EnemyType.BONE_SENTINEL, 31, 20, 1);
+        game.session().enemies.add(enemy);
+        set(screen, "inventoryVisible", true);
+        for (int i=0;i<30;i++) invoke(screen, "updateEnemies", new Class<?>[]{float.class}, .1f);
+        assertSame(screen, game.getScreen());
+        set(screen, "inventoryVisible", false); screen.pause();
+        for (int i=0;i<30;i++) invoke(screen, "updateEnemies", new Class<?>[]{float.class}, .1f);
+        assertSame(screen, game.getScreen());
+        screen.resume();
+        for (int i=0;i<30 && game.getScreen()==screen;i++) invoke(screen, "updateEnemies", new Class<?>[]{float.class}, .1f);
+        assertInstanceOf(CombatScreen.class, game.getScreen());
+        assertSame(enemy, get(game.getScreen(), "enemy"));
+        assertTrue(route(screen).isEmpty());
     }
 
     private ProgressionOverlay progression(Screen screen) throws Exception {

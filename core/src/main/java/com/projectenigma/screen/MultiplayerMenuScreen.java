@@ -292,7 +292,7 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
                           + ", then fight with the hero you grew."
                         : "Classic PvP: pick a class and fight immediately.";
                 UiRenderer.centeredText(game.batch(), game.font(), modeExplanation, 640f, 260f, Palette.BLUE_LIGHT);
-                String hint = "W/S: select    Enter: confirm    Esc: back";
+                String hint = "Host chooses mode; Join follows host. | Esc: back";
                 if (raceModeSelected) {
                     hint += "    (Left/Right or -/+: change duration)";
                 }
@@ -323,7 +323,7 @@ public final class MultiplayerMenuScreen extends AbstractGameScreen {
                 UiRenderer.centeredText(game.batch(), game.mediumFont(), "Connecting to " + ipInput + "...", 640f, 400f, Palette.TEXT);
                 UiRenderer.centeredText(game.batch(), game.font(), "Retrying automatically every 3 seconds.", 640f, 360f, Palette.MUTED);
                 if (raceModeSelected) {
-                    UiRenderer.centeredText(game.batch(), game.font(), "Race Mode selected.", 640f, 325f, Palette.BLUE_LIGHT);
+                    UiRenderer.centeredText(game.batch(), game.font(), "The host chooses the game mode.", 640f, 325f, Palette.BLUE_LIGHT);
                 }
                 UiRenderer.centeredText(game.batch(), game.font(), "Esc: cancel", 640f, 185f, Palette.MUTED);
             }

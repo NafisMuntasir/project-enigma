@@ -72,6 +72,7 @@ public final class UtopiaAssets {
     private final Texture menuBackground;
     private final Texture battleBackground;
     private final TextureRegion[][] tiles;
+    private final TextureRegion[][] environmentTiles;
     private final TextureRegion[][] chestFrames;
 
     public UtopiaAssets() {
@@ -81,6 +82,18 @@ public final class UtopiaAssets {
         Texture tileTexture = loadTexture(ROOT + "tiles/utopia_tileset_64.png");
         tiles = TextureRegion.split(tileTexture, TILE_SIZE, TILE_SIZE);
         requireGrid(tiles, 8, 8, "utopia tileset");
+        Texture environment = loadTexture(ROOT + "tiles/utopia_environment_v2.png");
+        if (environment.getWidth() != environment.getHeight() || environment.getWidth() < 256)
+            throw new IllegalStateException("Environment atlas must be a square 4-by-4 grid");
+        environment.setFilter(TextureFilter.Linear, TextureFilter.Linear);
+        environmentTiles = new TextureRegion[4][4];
+        for (int row = 0; row < 4; row++) for (int col = 0; col < 4; col++) {
+            int x = Math.round(col * environment.getWidth() / 4f);
+            int y = Math.round(row * environment.getHeight() / 4f);
+            int right = Math.round((col + 1) * environment.getWidth() / 4f);
+            int bottom = Math.round((row + 1) * environment.getHeight() / 4f);
+            environmentTiles[row][col] = new TextureRegion(environment, x + 1, y + 1, right - x - 2, bottom - y - 2);
+        }
         Texture chestTexture = loadKeyedTexture("assets/props/chest/opening-keyed.png", EnemyArt.CHEST,
                 EnemyArt.CHEST_CLOSED_HEIGHT, false);
         chestFrames = TextureRegion.split(chestTexture, 64, 96);
@@ -133,50 +146,26 @@ public final class UtopiaAssets {
     }
 
     public TextureRegion floorTile(int x, int y) {
-        int pattern = Math.floorMod(x * 37 + y * 19, 47);
-        if (pattern == 0) {
-            return tile(7); // restrained red cross accent
-        }
-        if (pattern == 1) {
-            return tile(12); // restrained blue cross accent
-        }
-        if (pattern < 5) {
-            return tile(2); // inset white floor panel
-        }
-        if (pattern == 5) {
-            return tile(14); // occasional grate
-        }
-        return tile(((x + y) & 1) == 0 ? 0 : 1);
+        // Quiet, coherent ceramic surfaces. Maintenance details are deliberately rare.
+        int pattern = Math.floorMod(x * 37 + y * 19, 71);
+        if (pattern == 0) return environmentTiles[1][0];
+        if (pattern == 1) return environmentTiles[1][1];
+        return environmentTiles[0][Math.floorMod(x * 7 + y * 11, 4)];
     }
 
-    public TextureRegion wallTile(int x, int y, boolean floorNorth, boolean floorSouth,
-                                  boolean floorEast, boolean floorWest) {
-        if (floorNorth && floorEast) {
-            return tile(21);
-        }
-        if (floorNorth && floorWest) {
-            return tile(22);
-        }
-        if (floorSouth && floorEast) {
-            return tile(23);
-        }
-        if (floorSouth && floorWest) {
-            return tile(24);
-        }
-        if (floorNorth) {
-            return tile(18);
-        }
-        if (floorSouth) {
-            return tile(17);
-        }
-        if (floorEast) {
-            return tile(19);
-        }
-        if (floorWest) {
-            return tile(20);
-        }
-        int pattern = Math.floorMod(x * 23 + y * 31, 29);
-        return tile(pattern == 0 ? 31 : 16);
+    public void drawWall(SpriteBatch batch, int x, int y, boolean floorNorth, boolean floorSouth,
+                         boolean floorEast, boolean floorWest) {
+        batch.draw(environmentTiles[2][Math.floorMod(x * 3 + y, 4)], x, y, 1, 1);
+        // Draw an architectural rim only where solid structure meets walkable floor.
+        // Adjacent wall cells remain a continuous mass, including opposite-sided walls.
+        if (floorNorth) drawWallEdge(batch, x, y, 180);
+        if (floorWest) drawWallEdge(batch, x, y, 270);
+        if (floorEast) drawWallEdge(batch, x, y, 90);
+        if (floorSouth) drawWallEdge(batch, x, y, 0);
+    }
+
+    private void drawWallEdge(SpriteBatch batch, int x, int y, float rotation) {
+        batch.draw(environmentTiles[3][0], x, y, .5f, .5f, 1f, .24f, 1, 1, rotation);
     }
 
     public TextureRegion stairsDownTile() {

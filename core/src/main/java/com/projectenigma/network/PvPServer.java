@@ -48,6 +48,7 @@ public final class PvPServer implements AutoCloseable {
         void onClassSelected(HeroClass guestClass);
         void onActionReceived(BattleAction action);
         default void onSkillReceived(com.projectenigma.model.Skill skill) { }
+        default void onItemReceived(String itemId) { }
         void onAbandon();
 
         /**
@@ -141,6 +142,8 @@ public final class PvPServer implements AutoCloseable {
             enqueue(() -> listener.onClassSelected(packet.heroClass()));
         } else if (payload instanceof PvPActionPacket packet) {
             enqueue(() -> listener.onActionReceived(packet.action()));
+        } else if (payload instanceof PvPItemPacket packet) {
+            enqueue(() -> listener.onItemReceived(packet.itemId()));
         } else if (payload instanceof PvPSkillPacket packet) {
             enqueue(() -> listener.onSkillReceived(packet.skill()));
         } else if (payload instanceof PvPAbandonPacket) {

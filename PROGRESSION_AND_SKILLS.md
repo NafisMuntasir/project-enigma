@@ -30,8 +30,8 @@ items and XP; old levels do not retroactively grant unearned choices.
   recovery counters.
 - Click Use Skill or press Enter to activate. T activates the technical skill
   in combat. Esc closes Skills; it cannot dismiss a required upgrade choice.
-- Existing combat controls remain: solo 1 Attack, 2 Tech, 3 Guard, 4 Run, I
-  Items; classic PvP keeps its original 1-5 actions and potion handling.
+- Both solo and PvP share 1 Attack, 2 Tech, 3 Guard, 4 Run, I Items, and L Skills.
+  The same paginated Items menu consumes health or energy supplies through BattleEngine.
 
 ## Skill balance
 
@@ -138,3 +138,24 @@ the project's existing save behavior.
 Allies, multi-target attacks, map teleportation, and real-time action speed were
 not added: these require mechanics absent from the current one-opponent arena.
 Existing sprites/skill animations and sound cues are reused; no art rewrite.
+
+## Shared multiplayer combat (follow-up)
+
+The host selects Classic or Rush and sends that setting before the guest can
+ready up. The guest's local mode toggle only matters when they host a game.
+Rush transfers inventory quantities, equipped weapon/armor, permanent pickup
+boosts and skill progression. Both players use the same handoff normalization;
+old encounter guard/status effects reset, and a fallen Rush hero enters at 1 HP.
+
+`screen/CombatMenu` now owns the common action buttons, keyboard bindings and
+paginated Items menu. `BattleEngine.resolveItem` handles consumables in both
+modes. `PvPItemPacket` requests only an ID; `PvPMatch` validates ownership,
+availability, turn and connection state. `InventorySnapshot`/`ItemSnapshot`
+carry immutable inventory state after every action and reconnect. Equipment
+remains chosen during exploration, matching solo combat.
+
+Multiplayer still waits for the human opponent instead of making an automatic
+enemy reply. Successful Run ends the match in the opponent's favor; the shared
+engine's escape chance remains unchanged. There is no second damage or item
+resolver. Both peers must use this build. Rush exploration remains locally
+simulated with bounded loadout transfer; this is not an anti-cheat redesign.

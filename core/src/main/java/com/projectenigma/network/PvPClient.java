@@ -33,6 +33,8 @@ public final class PvPClient implements AutoCloseable {
         void onStateReceived(PvPBattleState state);
 
         /** Race-to-PvP only. Default no-op -- see {@code PvPServer.EventListener.onReadyForPvp}. */
+        default void onLobbySettings(LobbySettingsPacket packet) { }
+
         default void onRaceStart(RaceStartPacket packet) { }
 
         /** Race-to-PvP only. Default no-op -- see {@code PvPServer.EventListener.onReadyForPvp}. */
@@ -99,6 +101,8 @@ public final class PvPClient implements AutoCloseable {
     }
 
     public void sendSkill(com.projectenigma.model.Skill skill) { send(new PvPSkillPacket(skill)); }
+
+    public void sendItem(String itemId) { send(new PvPItemPacket(itemId)); }
 
     public void sendAbandon() {
         if (isConnected()) {
@@ -170,7 +174,9 @@ public final class PvPClient implements AutoCloseable {
             connection = new PvPConnection(socket, new PvPConnection.Listener() {
                 @Override
                 public void onReceived(Object payload) {
-                    if (payload instanceof PvPBattleState state) {
+                    if (payload instanceof LobbySettingsPacket packet) {
+                        enqueue(() -> listener.onLobbySettings(packet));
+                    } else if (payload instanceof PvPBattleState state) {
                         enqueue(() -> listener.onStateReceived(state));
                     } else if (payload instanceof RaceStartPacket packet) {
                         enqueue(() -> listener.onRaceStart(packet));

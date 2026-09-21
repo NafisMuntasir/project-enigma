@@ -82,8 +82,8 @@ public class Hero implements Combatant {
     }
 
     /**
-     * Migrates legacy single-player potion counts into the unified item inventory.
-     * Kept separate from the PvP potion API so old saves remain readable.
+     * Migrates legacy potion counts into the shared solo/PvP item inventory.
+     * The old potion API remains for compatibility; new combat menus use items.
      */
     public int migrateLegacyPotionsToItems() {
         if (potions <= 0) return 0;

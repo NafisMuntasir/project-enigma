@@ -41,6 +41,8 @@ public final class DungeonScreen extends AbstractGameScreen {
     private static final String[] RACE_PAUSE_OPTIONS = {"Resume", "Abandon Race"};
 
     private final GameSession session;
+    private final com.projectenigma.model.EnemyMovement enemyMovement;
+    private boolean focusSuspended;
     /** True only for a Race-to-PvP exploration-phase session; see {@link #DungeonScreen(ProjectEnigmaGame, GameSession, boolean)}. */
     private final boolean raceMode;
     private final String[] pauseOptions;
@@ -93,6 +95,7 @@ public final class DungeonScreen extends AbstractGameScreen {
         this.raceMode = raceMode;
         this.pauseOptions = raceMode ? RACE_PAUSE_OPTIONS : PAUSE_OPTIONS;
         DungeonMap map = session.dungeon();
+        enemyMovement = new com.projectenigma.model.EnemyMovement(session);
         explored = new boolean[map.width()][map.height()];
         renderedPlayerX = session.playerX + 0.5f;
         renderedPlayerY = session.playerY + 0.5f;
@@ -271,6 +274,13 @@ public final class DungeonScreen extends AbstractGameScreen {
 
     private void updateRoute(float delta) {
         if (uiLocked() || route.isEmpty()) return;
+        if (engagedEnemy != null && (!engagedEnemy.isAlive())) { cancelRoute(); return; }
+        if (engagedEnemy != null && !new GridPoint(engagedEnemy.x, engagedEnemy.y).equals(destination)) {
+            float remaining = routeTimer;
+            requestRoute(new GridPoint(engagedEnemy.x, engagedEnemy.y));
+            routeTimer = remaining;
+            if (route.isEmpty()) return;
+        }
         routeTimer -= delta;
         if (routeTimer > 0) return;
         GridPoint next = route.removeFirst();
@@ -289,7 +299,8 @@ public final class DungeonScreen extends AbstractGameScreen {
         for (int i = session.enemies.size() - 1; i >= 0; i--) {
             DungeonEnemy enemy = session.enemies.get(i);
             if (enemy.isAlive() && isVisible(enemy.x, enemy.y)
-                    && x >= enemy.x && x < enemy.x + 1 && y >= enemy.y && y < enemy.y + 1.5f)
+                    && x >= enemyMovement.renderedX(enemy) && x < enemyMovement.renderedX(enemy) + 1
+                    && y >= enemyMovement.renderedY(enemy) && y < enemyMovement.renderedY(enemy) + 1.5f)
                 return new GridPoint(enemy.x, enemy.y);
         }
         return new GridPoint((int)Math.floor(x), (int)Math.floor(y));
@@ -311,7 +322,8 @@ public final class DungeonScreen extends AbstractGameScreen {
         return "";
     }
 
-    @Override public void pause() { super.pause(); cancelRoute(); }
+    @Override public void pause() { super.pause(); cancelRoute(); focusSuspended = true; }
+    @Override public void resume() { super.resume(); focusSuspended = false; }
     @Override public void hide() { cancelRoute(); super.hide(); }
 
     private boolean handlePauseInput(int keycode) {
@@ -572,10 +584,12 @@ public final class DungeonScreen extends AbstractGameScreen {
         if (session.hero.progression().pendingChoices > 0 && !progressionUi.upgrading()) {
             cancelRoute(); mouseUi.cancel(); progressionUi.openUpgrades();
         }
-        if (!progressionVisible()) worldAnimationTime += safeDelta;
+        if (!uiLocked() && !focusSuspended) worldAnimationTime += safeDelta;
         updateHeldMovement(safeDelta);
         if (game.getScreen() != this) return;
         updateRoute(safeDelta);
+        if (game.getScreen() != this) return;
+        updateEnemies(safeDelta);
         if (game.getScreen() != this) return;
         renderedPlayerX = MathUtils.lerp(renderedPlayerX, session.playerX + 0.5f, Math.min(1f, safeDelta * 14f * session.hero.progression().movementMultiplier()));
         renderedPlayerY = MathUtils.lerp(renderedPlayerY, session.playerY + 0.5f, Math.min(1f, safeDelta * 14f * session.hero.progression().movementMultiplier()));
@@ -660,12 +674,11 @@ public final class DungeonScreen extends AbstractGameScreen {
                 if (map.tileAt(x, y) == TileType.FLOOR) {
                     game.batch().draw(game.assets().floorTile(x, y), x, y, 1f, 1f);
                 } else {
-                    game.batch().draw(game.assets().wallTile(x, y,
+                    game.assets().drawWall(game.batch(), x, y,
                                     map.tileAt(x, y + 1) == TileType.FLOOR,
                                     map.tileAt(x, y - 1) == TileType.FLOOR,
                                     map.tileAt(x + 1, y) == TileType.FLOOR,
-                                    map.tileAt(x - 1, y) == TileType.FLOOR),
-                            x, y, 1f, 1f);
+                                    map.tileAt(x - 1, y) == TileType.FLOOR);
                 }
             }
         }
@@ -748,13 +761,22 @@ public final class DungeonScreen extends AbstractGameScreen {
         }
     }
 
+    private void updateEnemies(float delta) {
+        if (uiLocked() || focusSuspended || game.getScreen() != this) return;
+        DungeonEnemy contact = enemyMovement.update(delta);
+        if (contact != null) { cancelRoute(); mouseUi.cancel(); game.startCombat(contact); }
+    }
+
     private void drawEnemies() {
         for (DungeonEnemy enemy : session.enemies) {
             if (!enemy.isAlive() || !isVisible(enemy.x, enemy.y)) {
                 continue;
             }
-            game.assets().drawWorldEnemy(game.batch(), enemy.type, UtopiaAssets.Direction.DOWN, worldAnimationTime,
-                    enemy.x + .5f, enemy.y, 1.5f);
+            float hover = enemy.type == com.projectenigma.model.EnemyType.CAVE_SLIME
+                    ? .035f * MathUtils.sin(worldAnimationTime * 3f + enemy.id) : 0;
+            game.assets().drawWorldEnemy(game.batch(), enemy.type,
+                    directionFromDelta(enemyMovement.directionX(enemy), enemyMovement.directionY(enemy)), worldAnimationTime,
+                    enemyMovement.renderedX(enemy) + .5f, enemyMovement.renderedY(enemy) + hover, 1.5f);
         }
     }
 

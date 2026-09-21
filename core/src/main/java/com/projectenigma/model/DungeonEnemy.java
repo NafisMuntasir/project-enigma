@@ -5,6 +5,9 @@ public class DungeonEnemy implements Combatant {
     public EnemyType type = EnemyType.CAVE_SLIME;
     public int x;
     public int y;
+    public int homeX;
+    public int homeY;
+    public boolean homeInitialized;
     public int maxHealth;
     public int health;
     public int attack;
@@ -24,6 +27,9 @@ public class DungeonEnemy implements Combatant {
         this.type = type;
         this.x = x;
         this.y = y;
+        this.homeX = x;
+        this.homeY = y;
+        this.homeInitialized = true;
 
         int difficulty = Math.max(0, floorNumber - 1);
         int typeBonus = switch (type) {

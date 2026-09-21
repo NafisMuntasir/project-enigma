@@ -297,6 +297,7 @@ public final class ProjectEnigmaGame extends Game {
         pvpServer.setListener(new PvPServer.EventListener() {
             @Override
             public void onGuestConnected(boolean isReconnect) {
+                pvpServer.sendToGuest(new com.projectenigma.network.LobbySettingsPacket(raceMode, raceDurationSeconds));
                 if (!isReconnect) {
                     if (raceMode) {
                         showRaceClassSelect();
@@ -366,13 +367,15 @@ public final class ProjectEnigmaGame extends Game {
         pvpClient.setListener(new PvPClient.EventListener() {
             @Override
             public void onConnected(boolean isReconnect) {
-                if (!isReconnect) {
-                    if (raceMode) {
-                        showRaceClassSelect();
-                    } else {
-                        showPvPClassSelect();
-                    }
-                }
+                // Wait for the host's settings. The joiner's toggle is not a match setting.
+            }
+
+            @Override
+            public void onLobbySettings(com.projectenigma.network.LobbySettingsPacket packet) {
+                if (raceSessionActive || getScreen() instanceof ClassSelectScreen) return;
+                raceModeRequested = packet.rush();
+                raceDurationSeconds = Math.max(15, packet.durationSeconds());
+                if (raceModeRequested) showRaceClassSelect(); else showPvPClassSelect();
             }
 
             @Override
@@ -390,14 +393,14 @@ public final class ProjectEnigmaGame extends Game {
 
             @Override
             public void onRaceStart(RaceStartPacket packet) {
-                if (raceMode) {
+                if (raceModeRequested) {
                     onRaceStartReceived(packet);
                 }
             }
 
             @Override
             public void onRaceTimerSync(RaceTimerSyncPacket packet) {
-                if (raceMode) {
+                if (raceModeRequested) {
                     onRaceTimerSyncReceived(packet);
                 }
             }
@@ -433,7 +436,7 @@ public final class ProjectEnigmaGame extends Game {
     // see RaceTimerSyncPacket's Javadoc. Once both sides have submitted a
     // result (the host directly, the guest via ReadyForPvPPacket), the host
     // builds a real PvPMatch from the two *actual* progressed Heroes and
-    // hands off to the existing PvPCombatScreen unchanged.
+    // hands off to PvPCombatScreen using the shared combat menu and engine.
     // ======================================================================
 
     public void showRaceClassSelect() {
@@ -573,7 +576,7 @@ public final class ProjectEnigmaGame extends Game {
         if (!raceHostFinished || raceGuestLoadout == null) {
             return; // still waiting on one side
         }
-        Hero hostHero = session.hero; // the exact, fully-progressed Hero the host just explored with
+        Hero hostHero = HeroLoadout.of(session.hero).toHero(); // Apply the same handoff normalization to both players.
         Hero guestHero = raceGuestLoadout.toHero();
         long seed = System.currentTimeMillis() ^ System.nanoTime();
         pvpMatch = new PvPMatch(hostHero, guestHero, seed);

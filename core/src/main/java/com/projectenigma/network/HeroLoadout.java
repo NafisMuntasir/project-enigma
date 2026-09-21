@@ -6,34 +6,26 @@ import com.projectenigma.model.HeroClass;
 import java.io.Serializable;
 
 /**
- * Full combat-relevant snapshot of a {@link Hero} developed during a
- * Race-to-PvP exploration phase, sent exactly once by the guest -- when its
- * exploration timer ends -- so the host can build the {@code PvPMatch} from
- * the hero the guest actually earned rather than a fresh {@code HeroClass}
- * default.
- *
- * <p>Deliberately a separate type from {@link HeroSnapshot}: {@code
- * HeroSnapshot} is a live, once-per-turn, display-only broadcast the host
- * repeatedly sends for the duration of an already-running match, and it
- * intentionally omits {@code attack}/{@code defense}/{@code potions} so a
- * client never has the fields it would need to fake damage math (see
- * {@code HeroSnapshot}'s Javadoc). {@code HeroLoadout} is sent exactly
- * once, before any match exists, describing progress the guest legitimately
- * earned in its own single-player dungeon run -- there is no repeated trust
- * decision to make every turn, only a one-time "here is the hero I grew"
- * transfer, which the host sanity-clamps on arrival via {@link #toHero()}.
+ * Rush handoff for both players: base stats, progression, inventory and equipped
+ * gear. Base ATK/DEF exclude equipment so reconstruction cannot apply it twice.
+ * Exploration is locally simulated, as before; the host bounds incoming values
+ * and owns all subsequent combat, item consumption and turn validation.
  */
 public record HeroLoadout(HeroClass heroClass, int level, int maxHealth, int health,
-                           int maxMana, int mana, int attack, int defense, int potions, ProgressionSnapshot progression)
+                           int maxMana, int mana, int attack, int defense, int potions, ProgressionSnapshot progression, InventorySnapshot inventory)
         implements Serializable {
     private static final long serialVersionUID = 1L;
     public HeroLoadout(HeroClass heroClass, int level, int maxHealth, int health, int maxMana, int mana, int attack, int defense, int potions) {
-        this(heroClass, level, maxHealth, health, maxMana, mana, attack, defense, potions, null);
+        this(heroClass, level, maxHealth, health, maxMana, mana, attack, defense, potions, null, null);
+    }
+
+    public HeroLoadout(HeroClass heroClass, int level, int maxHealth, int health, int maxMana, int mana, int attack, int defense, int potions, ProgressionSnapshot progression) {
+        this(heroClass, level, maxHealth, health, maxMana, mana, attack, defense, potions, progression, null);
     }
 
     public static HeroLoadout of(Hero hero) {
         return new HeroLoadout(hero.heroClass, hero.level, hero.maxHealth, hero.health,
-                hero.maxMana, hero.mana, hero.attack(), hero.defense(), hero.potions, ProgressionSnapshot.of(hero));
+                hero.maxMana, hero.mana, hero.attack, hero.defense, hero.potions, ProgressionSnapshot.of(hero), InventorySnapshot.of(hero));
     }
 
     /**
@@ -58,6 +50,17 @@ public record HeroLoadout(HeroClass heroClass, int level, int maxHealth, int hea
         hero.attack = reasonableCap(attack, heroClass.attack(), hero.level);
         hero.defense = reasonableCap(defense, heroClass.defense(), hero.level);
         hero.potions = Math.max(0, Math.min(9, potions));
+        if (inventory != null) {
+            // Permanent pickups can increase stats without increasing level. Preserve them,
+            // with finite transfer bounds, rather than treating every boost as a level gain.
+            hero.maxHealth = Math.max(hero.maxHealth, Math.min(100000, maxHealth));
+            hero.maxMana = Math.max(hero.maxMana, Math.min(100000, maxMana));
+            hero.attack = Math.max(hero.attack, Math.min(10000, attack));
+            hero.defense = Math.max(hero.defense, Math.min(10000, defense));
+            hero.health = clampAtLeastOne(health, hero.maxHealth);
+            hero.mana = Math.max(0, Math.min(hero.maxMana, mana));
+            inventory.restore(hero);
+        }
         return hero;
     }
 
