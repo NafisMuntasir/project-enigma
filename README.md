@@ -14,12 +14,22 @@ pixel-art presentation built around white/off-white floors, dark graphite wall
 architecture, cool grey, signal red, and electric blue.
 See `SCI_FI_ENEMY_ART.md` for the enemy roster, compatibility mapping, and art prompt.
 
+> Authors
+> ```bash
+> Farhan Labeeb   -   230041120
+> Najmus Sakib    -   230041149
+> Nafis Muntasir  -   230041154
+> ```
+
+> ***Final Project Presentation :***
+> https://drive.google.com/file/d/1pLOwoYmfgp9y1-FwOc_USmSxmeO7hxDq/view?usp=sharing
+
 ## Implemented gameplay
 
 - Seeded room-and-corridor dungeon generation with guaranteed connectivity
 - A distant, reachable staircase on every floor
 - Fog of exploration, collision, camera following, chests, loot, and enemies
-- Five sci-fi operatives—Sentinel, Hacker, Sniper, Enforcer, and Bio-Medic—with distinct statistics and tech skills
+- Five sci-fi operativesâ€”Sentinel, Hacker, Sniper, Enforcer, and Bio-Medicâ€”with distinct statistics and tech skills
 - Turn-based Attack, Tech Skill, Guard, Items, general Skills, and Run actions
 - Enemy scaling, bosses every fifth floor, experience, levels, gold, and drops
 - Four utopian sci-fi enemy archetypes: Recon Drone, Aegis Robot, Helix Cyborg, and Enhanced Warden
@@ -171,21 +181,21 @@ skill, encounter, power-up.
 - **Interact:** click a chest to approach and open it; click a visible enemy to approach and fight. Click stairs to approach, then click Descend to change floors.
 - **HUD:** Items, Equipment, Skills, Pause, and contextual Descend buttons are clickable. Use consumables from Items; pause has Resume, Save Game, Main Menu, and Quit (Race Mode's pause menu is just Resume and Abandon Race, since a race session never saves).
 - **Combat:** click an action; hover for descriptions and unavailable-action explanations. Inputs lock during animations and while a PvP request awaits the host. Click Continue after solo combat or Main Menu after PvP.
-- **Multiplayer:** click Host or Join. Toggle "Race Mode" first to explore-then-fight instead of an immediate duel — see below. Click the address field to edit an IPv4 address; Ctrl+A selects all, Ctrl+V or Paste inserts the clipboard, and Connect joins. Cancel stops hosting/connecting; Abandon exits a disconnected match.
+- **Multiplayer:** click Host or Join. Toggle "Race Mode" first to explore-then-fight instead of an immediate duel â€” see below. Click the address field to edit an IPv4 address; Ctrl+A selects all, Ctrl+V or Paste inserts the clipboard, and Connect joins. Cancel stops hosting/connecting; Abandon exits a disconnected match.
 - **Focus:** keyboard movement, overlays, window focus loss, and screen changes cancel mouse travel. UI and letterbox clicks never move the operative. All previous keyboard shortcuts remain available.
 
 PvP keeps its existing network format. Because guest snapshots do not include potion counts, an exhausted-potion attempt may first be rejected by the host (without spending a turn); further potion clicks are then disabled for that match.
 
 **Race Mode:** toggle it on in the Multiplayer menu before Host/Join, and
 use the "-"/"+" buttons (or Left/Right while it's selected) to set the
-exploration length from 30 seconds to 10 minutes — the host's choice is
+exploration length from 30 seconds to 10 minutes â€” the host's choice is
 what counts, sent to the guest automatically. Both players pick a class,
 then explore their own independent (but identically-seeded) dungeon until
 the countdown time-bar at the top of the screen runs out. When time's up,
 the screen shows "Waiting for opponent" while the other player finishes;
 once both are done, the fight begins using the heroes each player
 actually grew (level, HP/EN, stats, items, equipment, and skills). Esc or "Abandon
-Race" leaves at any point. See `DESIGN.md` §10 for the full design.
+Race" leaves at any point. See `DESIGN.md` Â§10 for the full design.
 
 ## Keyboard controls
 
@@ -286,7 +296,7 @@ because this project was built from its design and source review.
 The host chooses Classic or Rush; joining players automatically adopt that mode.
 Rush preserves collected items, equipped gear, permanent boosts and skill unlocks
 when the timer ends. Solo and PvP use the same combat action and Items menu:
-**1�4** for actions, **I** for Items, **L** for Skills. Item quantities and effects
+**1–4** for actions, **I** for Items, **L** for Skills. Item quantities and effects
 are validated by the host, including after reconnect. Both players need the
 updated build.
 
